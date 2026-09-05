@@ -662,7 +662,8 @@ onUnmounted(() => {
     <canvas
       ref="canvas"
       class="zeromind-canvas"
-      aria-hidden="true"
+      aria-label="Interactive cosmic orb field — use arrow keys or WASD to push orbs"
+      role="img"
       @mousemove="onMouseMove"
       @mousedown.prevent="onMouseDown"
       @mouseup="onMouseUp"

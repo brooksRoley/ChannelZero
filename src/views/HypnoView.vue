@@ -131,8 +131,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="hypno" @click="handleClick">
-    <canvas ref="canvasRef" class="hypno-canvas" />
+  <div
+    class="hypno"
+    role="application"
+    aria-label="Hypnotic orb field — tap to start, WASD or arrow keys to push orbs, Tab to select"
+    @click="handleClick"
+  >
+    <canvas ref="canvasRef" class="hypno-canvas" aria-hidden="true" />
 
     <!-- Entry gate -->
     <Transition name="gate">

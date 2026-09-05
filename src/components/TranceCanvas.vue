@@ -9,7 +9,7 @@
     @touchend="onTouchEnd"
   >
     <!-- Category-driven canvas -->
-    <canvas ref="canvasEl" class="canvas-layer" />
+    <canvas ref="canvasEl" class="canvas-layer" aria-hidden="true" />
 
     <!-- Audio-init overlay -->
     <Transition name="init-fade">
