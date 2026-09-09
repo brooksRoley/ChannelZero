@@ -245,20 +245,6 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
 
-    // ── Fitting ritual + Match reveal ─────────────────────────────────────
-    {
-      path: '/fitting/:matchId',
-      name: 'fitting-ritual',
-      component: () => import('@/views/FittingRitualView.vue'),
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/reveal/:matchId',
-      name: 'reveal',
-      component: () => import('@/views/RevealView.vue'),
-      meta: { requiresAuth: true }
-    },
-
     // ── Admin analytics dashboard ────────────────────────────────────────
     {
       path: '/admin',
