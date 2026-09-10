@@ -16,6 +16,7 @@ const { apiFetch } = useAuthStore()
 const visible = ref(false)
 const submitting = ref(false)
 const finished = ref(false)
+const showJournalBridge = ref(false)
 const selectedValue = ref<number | null>(null)
 const transitioning = ref(false)
 
@@ -175,9 +176,12 @@ async function submit(value: number) {
         transitioning.value = false
       }, 400)
     } else {
-      // Final question — close
-      finished.value = true
-      setTimeout(() => emit('close'), 1200)
+      // Final question — show journal bridge, then auto-close
+      showJournalBridge.value = true
+      setTimeout(() => {
+        finished.value = true
+        setTimeout(() => emit('close'), 1200)
+      }, 3500)
     }
   } catch {
     submitting.value = false
@@ -230,8 +234,22 @@ function handleBackdropClick(e: MouseEvent) {
       <!-- Trance line -->
       <div class="text-xs text-gray-600 text-center">{{ tranceLine }}</div>
 
+      <!-- Journal bridge (shown after final question, auto-closes in 3.5s) -->
+      <div v-if="showJournalBridge" class="text-center space-y-3 py-2">
+        <p class="text-xs text-gray-500 tracking-widest uppercase">session complete</p>
+        <RouterLink
+          to="/journal?from=trance"
+          class="block text-sm text-purple-300 hover:text-purple-200 transition-colors"
+          @click="emit('close')"
+        >write what came up &nbsp;→</RouterLink>
+        <button
+          class="text-xs text-gray-600 hover:text-gray-500 transition-colors"
+          @click="emit('close')"
+        >close</button>
+      </div>
+
       <!-- Psychometric item (with fade transition) -->
-      <div v-if="currentItem" class="space-y-4">
+      <div v-else-if="currentItem" class="space-y-4">
         <div
           :key="currentItem.item_id"
           class="question-fade"
@@ -299,9 +317,14 @@ function handleBackdropClick(e: MouseEvent) {
         </div>
       </div>
 
-      <!-- Data-only mode (no questions) -->
-      <div v-else-if="connectorStats.length" class="text-center">
-        <p class="text-xs text-gray-600">reflect on your signal</p>
+      <!-- Data-only mode (connector stats, no psychometric items) -->
+      <div v-else-if="connectorStats.length" class="space-y-3">
+        <p class="text-xs text-gray-600 text-center">reflect on your signal</p>
+        <RouterLink
+          to="/journal?from=trance"
+          class="block text-sm text-center text-purple-300/70 hover:text-purple-300 transition-colors"
+          @click="emit('close')"
+        >write what came up &nbsp;→</RouterLink>
       </div>
     </div>
   </div>
