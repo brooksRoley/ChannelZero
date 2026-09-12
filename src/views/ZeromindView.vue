@@ -695,7 +695,7 @@ onUnmounted(() => {
           :aria-pressed="i === modeIndex"
           @click="setMode(i)"
         >
-          <span class="chip-glyph">{{ m.glyph }}</span>
+          <span class="chip-glyph" aria-hidden="true">{{ m.glyph }}</span>
           <span class="chip-label">{{ m.label }}</span>
         </button>
       </div>
@@ -712,7 +712,7 @@ onUnmounted(() => {
         aria-live="polite"
         aria-atomic="true"
       >
-        <span class="badge-dot" />
+        <span class="badge-dot" aria-hidden="true" />
         {{ phaseDisplayName }}
       </div>
     </Transition>
