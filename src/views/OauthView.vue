@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen calibrate-bg text-gray-100 p-8 flex flex-col items-center relative">
+  <div class="min-h-screen calibrate-bg text-gray-100 p-4 sm:p-8 flex flex-col items-center relative">
 
     <!-- Oracle synthesis overlay -->
     <div
