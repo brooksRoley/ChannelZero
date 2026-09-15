@@ -1287,8 +1287,10 @@ onUnmounted(() => {
 }
 
 .modal-textarea:focus {
-  outline: none;
   border-color: #6366f1;
+}
+.modal-textarea:focus:not(:focus-visible) {
+  outline: none;
 }
 
 .modal-actions {
