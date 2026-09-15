@@ -258,7 +258,7 @@ async function scrollToBottom() {
       </header>
 
       <!-- Chat thread -->
-      <div ref="chatEl" class="chat-thread">
+      <div ref="chatEl" class="chat-thread" aria-live="polite" aria-label="Oracle conversation">
         <TransitionGroup name="msg">
           <div
             v-for="msg in messages"
@@ -269,7 +269,7 @@ async function scrollToBottom() {
           </div>
         </TransitionGroup>
 
-        <div v-if="sending" class="typing-indicator">
+        <div v-if="sending" class="typing-indicator" role="status" aria-label="Oracle is responding">
           <span class="dot" /><span class="dot" /><span class="dot" />
         </div>
       </div>
@@ -327,7 +327,9 @@ async function scrollToBottom() {
 
       <!-- Input -->
       <div v-if="!confessed" class="input-row">
+        <label for="oracle-input" class="sr-only">Tell the Oracle what's on your mind</label>
         <input
+          id="oracle-input"
           v-model="userInput"
           type="text"
           class="chat-input"
@@ -380,6 +382,11 @@ async function scrollToBottom() {
 }
 
 .back-btn:hover { color: #94a3b8; }
+.back-btn:focus-visible {
+  outline: 2px solid rgba(99, 102, 241, 0.7);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
 
 .intake-title {
   font-size: 1.25rem;
@@ -510,6 +517,10 @@ async function scrollToBottom() {
   background: #fff;
   transform: translateY(-1px);
 }
+.hook-btn:focus-visible {
+  outline: 2px solid rgba(99, 102, 241, 0.7);
+  outline-offset: 3px;
+}
 
 .hook-btn--inline {
   align-self: center;
@@ -546,8 +557,20 @@ async function scrollToBottom() {
   box-sizing: border-box;
 }
 
-.chat-input:focus {
+.chat-input:focus-visible {
   border-color: rgba(99, 102, 241, 0.4);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .chat-input::placeholder { color: #475569; }
@@ -628,6 +651,10 @@ async function scrollToBottom() {
 .game-btn:hover {
   opacity: 0.9;
   transform: translateY(-1px);
+}
+.game-btn:focus-visible {
+  outline: 2px solid rgba(99, 102, 241, 0.7);
+  outline-offset: 3px;
 }
 
 .not-ready {
