@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from typing import Dict, Any
 
 from ..auth.deps import get_current_user_id
 from ..db import get_pool
+from ..ratelimit import limiter
 from .scoring import generate_psycho_profile, encrypt_responses
 from .question_pool import get_next_item, get_next_items, CORE_POOL
 from ..llm.psychoanalysis import generate_psychoanalysis_narrative
@@ -82,7 +83,8 @@ async def get_my_profile(user_id: UUID = Depends(get_current_user_id)):
     }
 
 @router.post("/narrative")
-async def generate_narrative(user_id: UUID = Depends(get_current_user_id)):
+@limiter.limit("5/hour")
+async def generate_narrative(request: Request, user_id: UUID = Depends(get_current_user_id)):
     """Triggers the LLM psychoanalysis based on current scores."""
     pool = get_pool()
     
