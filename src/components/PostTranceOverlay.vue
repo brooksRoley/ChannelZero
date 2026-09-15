@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/composables/useAuthStore'
 
 const props = defineProps<{
@@ -11,7 +12,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ close: [] }>()
 
-const { apiFetch } = useAuthStore()
+const { apiFetch, isAuthenticated } = useAuthStore()
 
 const visible = ref(false)
 const submitting = ref(false)
@@ -127,6 +128,12 @@ const likertMax = computed(() => {
 
 // ── Fetch & init ────────────────────────────────────────────────
 onMounted(async () => {
+  // Guest users: show acquisition card immediately, skip API calls
+  if (!isAuthenticated.value) {
+    setTimeout(() => { visible.value = true }, 100)
+    return
+  }
+
   pickedConnector.value = pickConnector()
 
   const [itemsRes, profileRes] = await Promise.allSettled([
@@ -221,6 +228,32 @@ function handleBackdropClick(e: MouseEvent) {
         class="absolute top-3 right-3 text-gray-600 hover:text-gray-400 text-sm"
         @click="emit('close')"
       >✕</button>
+
+      <!-- Guest acquisition card -->
+      <template v-if="!isAuthenticated">
+        <div class="text-center space-y-5">
+          <div class="text-xs text-gray-500 uppercase tracking-widest">{{ tranceLine }}</div>
+          <p class="text-sm text-gray-300 leading-relaxed">
+            Track your coherence over time.<br>Hear what your own data sounds like.
+          </p>
+          <RouterLink
+            to="/login"
+            class="block w-full py-2.5 px-4 rounded-xl text-sm font-medium bg-indigo-600/80 hover:bg-indigo-600 text-white transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/60"
+            @click="emit('close')"
+          >
+            Begin your practice
+          </RouterLink>
+          <button
+            class="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+            @click="emit('close')"
+          >
+            Continue exploring
+          </button>
+        </div>
+      </template>
+
+      <!-- Authenticated: connector data + psychometrics -->
+      <template v-else>
 
       <!-- Connector data -->
       <div v-if="connectorStats.length" class="space-y-1.5">
@@ -326,6 +359,8 @@ function handleBackdropClick(e: MouseEvent) {
           @click="emit('close')"
         >write what came up &nbsp;→</RouterLink>
       </div>
+
+      </template><!-- end authenticated -->
     </div>
   </div>
 </template>
