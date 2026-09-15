@@ -208,4 +208,55 @@ export const LEARN_TOPICS: LearnTopic[] = [
     },
     linkedSession: { label: 'Open the Reader', to: '/reader' },
   },
+
+  {
+    slug: 'your-sonic-psyche',
+    title: 'Your Sonic Psyche',
+    phase: 3,
+    phaseName: 'Application',
+    shortDescription: 'What your listening history reveals about your emotional life — and why the pattern matters more than the playlist.',
+    sections: {
+      definition:
+        'Most people treat music as taste — a preference, a mood-setter, background texture. The psychoanalytic lens turns that assumption over. Listening history is behavioral data: what you reached for at 2 a.m., which genres you return to under stress, how your energy tracks across the week. The aggregate is not a playlist. It is a record of emotional states and the strategies you use to modulate them.\n\nSonic psyche is the term ChannelZero uses for this reading — the psychological profile implicit in your listening, surfaced as a narrative rather than a chart.',
+      mechanism:
+        'The signal is in the texture, not the genre label. A consistent preference for minor keys in high-tempo music suggests something different from minor keys at low tempo. Listening volume — songs played at all, songs played to completion, songs skipped after twenty seconds — is as informative as the tracks themselves. When do you reach for familiar songs versus new ones? Do your listening spikes correlate with your calendar? With the time of day?\n\nSpotify stores this data. ChannelZero reads it, runs it through an LLM trained to produce psychoanalytic prose rather than algorithmic recommendations, and returns a portrait of the emotional self implicit in the pattern. The goal is not to categorize you. It is to hold up a mirror the algorithm never offered.',
+      inPractice:
+        'Connect Spotify on the Calibrate page and then open your connector reading at /calibrate/spotify. The reading takes two to three minutes to generate. It covers your dominant sonic mood, what your genre landscape suggests about your coping strategies, and which aspect of your listening points to something worth examining.\n\nThe reading changes as your listening changes. Run it every few weeks to track the arc.',
+    },
+    linkedSession: { label: 'Connect Spotify', to: '/calibrate' },
+  },
+
+  {
+    slug: 'the-builders-mind',
+    title: "The Builder's Mind",
+    phase: 3,
+    phaseName: 'Application',
+    shortDescription: "What your GitHub history reveals about how you think, what you care about, and why you build what you build.",
+    sections: {
+      definition:
+        'A repository is not neutral. Every commit is a decision about what is worth making. Every abandoned branch is a desire that ran out of energy. The ratio of side projects to maintained work, the hours you push code, the languages you gravitate toward, the density of your commit messages — each of these is behavioral data about the kind of mind you are, and the kind of maker.\n\nChannelZero reads your GitHub history as a psychological document rather than a portfolio. The question it asks is not what you built, but what your building reveals.',
+      mechanism:
+        'The signal that matters most is the gap between intent and follow-through. A developer with forty repositories and three stars is making a different psychological statement than one with four repositories and two hundred commits each. One pattern suggests restless curiosity; the other suggests a commitment orientation. Neither is better. Both are legible.\n\nLanguage choice is another layer. Systems-level languages suggest a preference for precision and control. Dynamic scripting often tracks with rapid experimentation. The mix tells you something about the tension between the developer\'s ideal of what code should be and the reality they build toward.\n\nTimestamps are the most underread signal. When do you code? Sustained late-night commits across months suggest something different from sporadic bursts. The rhythm is the information.',
+      inPractice:
+        'Connect GitHub on the Calibrate page. Your connector reading at /calibrate/github analyzes your public repository history, commit cadence, language distribution, and project completion rate. The narrative that comes back is a psychological portrait of you as a maker — your commitment style, your creative risk tolerance, and what your repository graveyard says about your relationship to completion.\n\nFor anyone considering a career move or assessing their own engineering identity, this reading tends to surface things that months of journaling would not.',
+    },
+    linkedSession: { label: 'Connect GitHub', to: '/calibrate' },
+  },
+
+  {
+    slug: 'mirror-mode',
+    title: 'Mirror Mode',
+    phase: 3,
+    phaseName: 'Application',
+    shortDescription: 'How ChannelZero uses your own data as a psychoanalytic mirror — and what makes this different from an algorithm.',
+    sections: {
+      definition:
+        'Most platforms that hold your data use it to build a model of what to show you next. The economic logic is engagement: keep you scrolling, keep you consuming, keep you producing signal that improves the model. ChannelZero runs the opposite direction. It takes the same data — your listening history, your commit log, your calendar, your viewing habits — and uses it to show you something about yourself, not back to you as content, but back to you as analysis.\n\nMirror Mode is the name for this orientation. The data is yours. The reading is for you. Nothing is trained on your responses. Nothing is optimized toward return visits. The value is in the clarity, not the retention.',
+      mechanism:
+        'The psychoanalytic frame that ChannelZero uses is interpretive, not diagnostic. It does not measure personality against a validated instrument. It reads behavioral patterns — what you do, when, how often, with what energy — and generates a narrative interpretation of what those patterns suggest about your emotional life, your coping strategies, your priorities, and your blind spots.\n\nThe approach borrows from behavioral psychoanalysis: the idea that unconscious material shows up in behavior before it shows up in language. What you reach for when stressed, what you avoid, what you do consistently versus what you only intend — these are the data. The LLM narrative is the reading.\n\nConnecting more data sources deepens the portrait. Spotify and GitHub together suggest something neither alone could surface. Add calendar or Reddit and the resolution increases again. The Portrait page synthesizes all connected sources into a single integrated reading.',
+      inPractice:
+        'Start by connecting one source — whichever feels most legible to you right now. Read the connector analysis at /calibrate/:provider. If the reading produces recognition, connect a second source and check the Portrait page for the integrated view.\n\nThe goal is not to collect connections. It is to find the reading that is most true — and most useful.',
+    },
+    linkedSession: { label: 'Start connecting', to: '/calibrate' },
+  },
 ]
