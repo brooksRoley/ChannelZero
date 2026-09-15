@@ -6,12 +6,13 @@ import json
 import re
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from .models import ConfessRequest, ConfessResponse, FittingRequest
 from ..auth.deps import get_current_user_id
 from ..db import get_conn, get_tx
 from ..llm.encryption import encrypt_api_key
+from ..ratelimit import limiter
 from ..vector.service import query_relevant_journal, upsert_user_vector, find_nearest_users
 
 router = APIRouter()
@@ -42,7 +43,7 @@ _ATTACHMENT_INSIGHTS = {
 _DEFENSE_INSIGHTS = {
     "humor": "You deflect with wit — the joke is the armor.",
     "projection": "You see your shadows in others before you see them in the mirror.",
-    "denial": "\"I'm fine\" is doing a lot of heavy lifting.",
+    "denial": '"I\'m fine" is doing a lot of heavy lifting.',
     "intellectualization": "You analyze the feeling instead of feeling it.",
     "rationalization": "You find reasons. There are always reasons.",
 }
@@ -73,7 +74,9 @@ def _analyze_local(confessions: list[str]) -> tuple[str, str, int]:
 
 
 @router.post("/confess", response_model=ConfessResponse)
+@limiter.limit("20/minute")
 async def confess(
+    request: Request,
     body: ConfessRequest,
     user_id: UUID = Depends(get_current_user_id),
 ):
