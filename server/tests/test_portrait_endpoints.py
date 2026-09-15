@@ -193,8 +193,11 @@ class TestGeneratePortrait:
 
         assert resp.status_code == 200
         body = resp.json()
+        assert body["status"] == "ready"
         assert body["portrait"]["headline"] == VALID_PORTRAIT["headline"]
         assert sorted(body["source_providers"]) == ["github", "spotify"]
+        assert sorted(body["connected_providers"]) == ["github", "spotify"]
+        assert body["llm_available"] is True
         mock_llm.assert_awaited_once()
 
         assert len(conn.execute_calls) == 1
