@@ -30,7 +30,14 @@
           <span class="text-lime-700">{{ totalAnswered }} / {{ TOTAL_ITEMS }} items completed</span>
           <span v-if="tranceCount > 0" class="text-purple-600">{{ tranceCount }} answered during trance</span>
         </div>
-        <div class="h-1 bg-lime-950 rounded-full overflow-hidden">
+        <div
+          class="h-1 bg-lime-950 rounded-full overflow-hidden"
+          role="progressbar"
+          :aria-valuenow="totalAnswered"
+          aria-valuemin="0"
+          :aria-valuemax="TOTAL_ITEMS"
+          :aria-label="`Assessment progress: ${totalAnswered} of ${TOTAL_ITEMS} items completed`"
+        >
           <div
             class="h-full rounded-full transition-all duration-700"
             :style="{ width: `${(totalAnswered / TOTAL_ITEMS) * 100}%`, background: 'linear-gradient(90deg, #a855f7, #a3e635)' }"
@@ -44,7 +51,14 @@
           <span>{{ STEP_LABELS[step] }}</span>
           <span>{{ step + 1 }} / {{ STEP_LABELS.length }}</span>
         </div>
-        <div class="h-px bg-lime-900">
+        <div
+          class="h-px bg-lime-900"
+          role="progressbar"
+          :aria-valuenow="step"
+          aria-valuemin="0"
+          :aria-valuemax="STEP_LABELS.length - 1"
+          :aria-label="`Step ${step + 1} of ${STEP_LABELS.length}: ${STEP_LABELS[step]}`"
+        >
           <div class="h-px bg-lime-500 transition-all duration-500" :style="{ width: `${(step / (STEP_LABELS.length - 1)) * 100}%` }" />
         </div>
       </div>
