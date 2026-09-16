@@ -260,6 +260,7 @@ const accent = computed(() => token.value?.palette?.accent || '#a78bfa')
             class="intention-input"
             rows="2"
             placeholder="What do you want to carry into today?"
+            aria-label="Set your intention for today"
           />
           <button
             class="btn-accent"

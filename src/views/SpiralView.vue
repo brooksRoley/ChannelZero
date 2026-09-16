@@ -125,16 +125,32 @@ useAnimationCanvas(canvasRef, {
 </script>
 
 <template>
-  <div class="spiral-view" @click="toggleOrSkip">
-    <canvas ref="canvasRef" class="spiral-canvas" />
+  <div
+    class="spiral-view"
+    role="button"
+    tabindex="0"
+    aria-label="Spiral trance visualization — press Space or Enter to advance"
+    @click="toggleOrSkip"
+    @keydown.space.prevent="toggleOrSkip"
+    @keydown.enter.prevent="toggleOrSkip"
+  >
+    <canvas ref="canvasRef" class="spiral-canvas" aria-hidden="true" />
 
-    <div class="word-overlay">
+    <div class="word-overlay" aria-live="polite" aria-atomic="true">
       <div v-if="displayLabel" class="category-label">{{ displayLabel }}</div>
       <div :class="['word-display', { visible: isVisible }]">{{ displayText }}</div>
     </div>
 
     <!-- Reader progress bar -->
-    <div v-if="isReaderMode" class="reader-progress">
+    <div
+      v-if="isReaderMode"
+      class="reader-progress"
+      role="progressbar"
+      :aria-valuenow="Math.round(readerProgress)"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      aria-label="Reading progress"
+    >
       <div class="reader-progress-fill" :style="{ width: `${readerProgress}%` }" />
     </div>
 
