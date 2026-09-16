@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 
 from ..auth.deps import get_current_user_id
 from ..db import get_conn
+from ..ratelimit import limiter
 from .models import SynthesisRequest, SynthesisResponse
 from .service import synthesize_and_upsert
 
@@ -15,7 +16,9 @@ router = APIRouter()
 
 
 @router.post("/synthesize", response_model=SynthesisResponse)
+@limiter.limit("5/hour")
 async def trigger_synthesis(
+    request: Request,
     body: SynthesisRequest,
     background_tasks: BackgroundTasks,
     user_id: UUID = Depends(get_current_user_id),

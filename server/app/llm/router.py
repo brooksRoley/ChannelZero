@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 
@@ -13,6 +13,7 @@ from .encryption import encrypt_api_key, decrypt_api_key, key_hint
 from .chat import llm_configured, chat_completion
 from ..auth.deps import get_current_user_id
 from ..db import get_conn
+from ..ratelimit import limiter
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -182,7 +183,9 @@ async def delete_key(
 # ── LLM Proxy ──────────────────────────────────────────────────
 
 @router.post("/proxy")
+@limiter.limit("30/hour")
 async def proxy_llm(
+    request: Request,
     body: LLMRequest,
     user_id: UUID = Depends(get_current_user_id),
 ):

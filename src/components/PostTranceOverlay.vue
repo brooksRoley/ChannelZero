@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/composables/useAuthStore'
 
 const props = defineProps<{
@@ -11,11 +12,12 @@ const props = defineProps<{
 
 const emit = defineEmits<{ close: [] }>()
 
-const { apiFetch } = useAuthStore()
+const { apiFetch, isAuthenticated } = useAuthStore()
 
 const visible = ref(false)
 const submitting = ref(false)
 const finished = ref(false)
+const showJournalBridge = ref(false)
 const selectedValue = ref<number | null>(null)
 const transitioning = ref(false)
 
@@ -126,6 +128,12 @@ const likertMax = computed(() => {
 
 // ── Fetch & init ────────────────────────────────────────────────
 onMounted(async () => {
+  // Guest users: show acquisition card immediately, skip API calls
+  if (!isAuthenticated.value) {
+    setTimeout(() => { visible.value = true }, 100)
+    return
+  }
+
   pickedConnector.value = pickConnector()
 
   const [itemsRes, profileRes] = await Promise.allSettled([
@@ -175,9 +183,12 @@ async function submit(value: number) {
         transitioning.value = false
       }, 400)
     } else {
-      // Final question — close
-      finished.value = true
-      setTimeout(() => emit('close'), 1200)
+      // Final question — show journal bridge, then auto-close
+      showJournalBridge.value = true
+      setTimeout(() => {
+        finished.value = true
+        setTimeout(() => emit('close'), 1200)
+      }, 3500)
     }
   } catch {
     submitting.value = false
@@ -218,6 +229,32 @@ function handleBackdropClick(e: MouseEvent) {
         @click="emit('close')"
       >✕</button>
 
+      <!-- Guest acquisition card -->
+      <template v-if="!isAuthenticated">
+        <div class="text-center space-y-5">
+          <div class="text-xs text-gray-500 uppercase tracking-widest">{{ tranceLine }}</div>
+          <p class="text-sm text-gray-300 leading-relaxed">
+            Track your coherence over time.<br>Hear what your own data sounds like.
+          </p>
+          <RouterLink
+            to="/login"
+            class="block w-full py-2.5 px-4 rounded-xl text-sm font-medium bg-indigo-600/80 hover:bg-indigo-600 text-white transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/60"
+            @click="emit('close')"
+          >
+            Begin your practice
+          </RouterLink>
+          <button
+            class="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+            @click="emit('close')"
+          >
+            Continue exploring
+          </button>
+        </div>
+      </template>
+
+      <!-- Authenticated: connector data + psychometrics -->
+      <template v-else>
+
       <!-- Connector data -->
       <div v-if="connectorStats.length" class="space-y-1.5">
         <div class="text-xs uppercase tracking-widest text-gray-500">{{ connectorLabel }}</div>
@@ -230,8 +267,22 @@ function handleBackdropClick(e: MouseEvent) {
       <!-- Trance line -->
       <div class="text-xs text-gray-600 text-center">{{ tranceLine }}</div>
 
+      <!-- Journal bridge (shown after final question, auto-closes in 3.5s) -->
+      <div v-if="showJournalBridge" class="text-center space-y-3 py-2">
+        <p class="text-xs text-gray-500 tracking-widest uppercase">session complete</p>
+        <RouterLink
+          to="/journal?from=trance"
+          class="block text-sm text-purple-300 hover:text-purple-200 transition-colors"
+          @click="emit('close')"
+        >write what came up &nbsp;→</RouterLink>
+        <button
+          class="text-xs text-gray-600 hover:text-gray-500 transition-colors"
+          @click="emit('close')"
+        >close</button>
+      </div>
+
       <!-- Psychometric item (with fade transition) -->
-      <div v-if="currentItem" class="space-y-4">
+      <div v-else-if="currentItem" class="space-y-4">
         <div
           :key="currentItem.item_id"
           class="question-fade"
@@ -299,10 +350,17 @@ function handleBackdropClick(e: MouseEvent) {
         </div>
       </div>
 
-      <!-- Data-only mode (no questions) -->
-      <div v-else-if="connectorStats.length" class="text-center">
-        <p class="text-xs text-gray-600">reflect on your signal</p>
+      <!-- Data-only mode (connector stats, no psychometric items) -->
+      <div v-else-if="connectorStats.length" class="space-y-3">
+        <p class="text-xs text-gray-600 text-center">reflect on your signal</p>
+        <RouterLink
+          to="/journal?from=trance"
+          class="block text-sm text-center text-purple-300/70 hover:text-purple-300 transition-colors"
+          @click="emit('close')"
+        >write what came up &nbsp;→</RouterLink>
       </div>
+
+      </template><!-- end authenticated -->
     </div>
   </div>
 </template>

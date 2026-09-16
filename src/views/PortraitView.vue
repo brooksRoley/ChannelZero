@@ -168,7 +168,7 @@ onUnmounted(() => {
           </p>
           <button
             @click="generate"
-            class="text-sm font-mono px-6 py-3 rounded-full border border-indigo-400/50 text-indigo-300 hover:bg-indigo-400/10 active:scale-95 transition-all"
+            class="text-sm font-mono px-6 py-3 rounded-full border border-indigo-400/50 text-indigo-300 hover:bg-indigo-400/10 active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/60"
           >Sit for your portrait</button>
         </div>
 
@@ -183,7 +183,7 @@ onUnmounted(() => {
             </p>
             <button
               @click="generate"
-              class="text-xs font-mono px-4 py-2 rounded-full border border-amber-400/50 text-amber-300 hover:bg-amber-400/10 active:scale-95 transition-all shrink-0"
+              class="text-xs font-mono px-4 py-2 rounded-full border border-amber-400/50 text-amber-300 hover:bg-amber-400/10 active:scale-95 transition-all shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60"
             >Re-sit</button>
           </div>
 
@@ -211,29 +211,29 @@ onUnmounted(() => {
             <button
               v-if="state === 'ready'"
               @click="generate"
-              class="text-xs font-mono text-gray-600 hover:text-gray-400 underline underline-offset-4 transition-colors"
+              class="text-xs font-mono text-gray-600 hover:text-gray-400 underline underline-offset-4 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/60 rounded"
             >re-sit for a new portrait</button>
           </footer>
 
-          <!-- What's next — return hook at peak engagement; shown only when portrait is fresh -->
-          <div v-if="state === 'ready'" class="pt-8 border-t border-gray-800 space-y-4">
+          <!-- What's next — return hook at peak engagement; shown on ready and stale states -->
+          <div v-if="state === 'ready' || state === 'stale'" class="pt-8 border-t border-gray-800 space-y-4">
             <p class="text-xs uppercase tracking-[0.3em] text-gray-600 font-mono">What's next</p>
             <div class="flex flex-wrap gap-3">
               <RouterLink
                 to="/checkin"
-                class="text-xs font-mono px-5 py-2.5 rounded-full border border-gray-700/60 text-gray-400 hover:border-indigo-400/50 hover:text-indigo-300 transition-colors"
+                class="text-xs font-mono px-5 py-2.5 rounded-full border border-gray-700/60 text-gray-400 hover:border-indigo-400/50 hover:text-indigo-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/60"
               >Daily check-in</RouterLink>
               <RouterLink
                 to="/journal"
-                class="text-xs font-mono px-5 py-2.5 rounded-full border border-gray-700/60 text-gray-400 hover:border-indigo-400/50 hover:text-indigo-300 transition-colors"
+                class="text-xs font-mono px-5 py-2.5 rounded-full border border-gray-700/60 text-gray-400 hover:border-indigo-400/50 hover:text-indigo-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/60"
               >Open journal</RouterLink>
               <RouterLink
                 to="/studio"
-                class="text-xs font-mono px-5 py-2.5 rounded-full border border-gray-700/60 text-gray-400 hover:border-emerald-400/50 hover:text-emerald-300 transition-colors"
+                class="text-xs font-mono px-5 py-2.5 rounded-full border border-gray-700/60 text-gray-400 hover:border-emerald-400/50 hover:text-emerald-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
               >Glass Studio</RouterLink>
               <RouterLink
                 to="/"
-                class="text-xs font-mono px-5 py-2.5 rounded-full border border-gray-700/60 text-gray-400 hover:border-gray-500/60 hover:text-gray-300 transition-colors"
+                class="text-xs font-mono px-5 py-2.5 rounded-full border border-gray-700/60 text-gray-400 hover:border-gray-500/60 hover:text-gray-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-500/60"
               >Return home</RouterLink>
             </div>
           </div>

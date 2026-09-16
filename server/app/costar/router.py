@@ -20,10 +20,9 @@ from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 
 from ..auth.deps import get_current_user_id
-from ..config import get_settings
 from ..db import get_conn
 from ..llm.chat import chat_completion
 
@@ -35,7 +34,7 @@ _COSTAR_API_BASE = "https://api.costarastrology.com"
 
 class CoStarIngestRequest(BaseModel):
     costar_username: str
-    costar_password: str
+    costar_password: SecretStr
 
 
 class CoStarManualRequest(BaseModel):
@@ -67,7 +66,7 @@ async def costar_ingest(
                 f"{_COSTAR_API_BASE}/auth/login",
                 json={
                     "email": req.costar_username,
-                    "password": req.costar_password,
+                    "password": req.costar_password.get_secret_value(),
                 },
             )
 
@@ -186,8 +185,6 @@ def _distill_chart(raw: dict) -> dict:
 @router.get("/analyze")
 async def costar_analyze(user_id: UUID = Depends(get_current_user_id)):
     """Generate an LLM psychoanalysis of the user's Co-Star natal chart data."""
-    settings = get_settings()
-
     async with get_conn() as conn:
         row = await conn.fetchrow(
             "SELECT costar_data FROM vibe_vectors WHERE user_id = $1",
@@ -238,7 +235,7 @@ NATAL CHART DATA:
 Write 2-3 paragraphs analyzing:
 1. Core identity architecture — how the Sun-Moon-Rising triad creates a specific tension between who they are (Sun), what they need (Moon), and how they present (Rising), and what behavioral patterns emerge from that tension
 2. Relational and drive patterns — what Venus and Mars placements reveal about how they love, what they're attracted to, how they pursue what they want, and the gap between desire and action
-3. Growth edges — what the outer planet placements (Mercury, Jupiter, Saturn) suggest about their communication style, where they seek expansion, and what structures or limitations they've internalized
+3. Growth edges — what the outer planet placements (Mercury, Jupiter, Saturn) suggest about their communication style, where they seek expansion, and what limitations they've internalized
 
 Be direct, specific, a little poetic. Avoid generic statements. Return only the narrative."""
 

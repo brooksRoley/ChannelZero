@@ -108,6 +108,17 @@ const otherSessions = computed(() => sessions.value.filter((s) => !s.recommended
 const { fetchStreak } = useAnalytics()
 const streak = ref<StreakData | null>(null)
 
+const streakNudge = computed(() => {
+  if (!streak.value || streak.value.streak < 2) return ''
+  const n = streak.value.streak
+  if (n >= 21) return 'Three weeks of reflection — your portrait has real depth now.'
+  if (n >= 14) return 'Two weeks in — your patterns are becoming visible.'
+  if (n >= 7)  return 'A full week of practice — your mirror is sharpening.'
+  if (n >= 5)  return 'Five sessions deep — the data is starting to cohere.'
+  if (n >= 3)  return 'Each return adds a layer to your self-portrait.'
+  return 'A second look — the mirror is forming.'
+})
+
 // Featured card adapts based on state
 const featuredTitle = computed(() =>
   token.value && recommendedSession.value ? recommendedSession.value.label : 'Discover Your Experience'
@@ -496,6 +507,9 @@ onUnmounted(() => {
             </div>
           </div>
 
+          <!-- Streak nudge — frames returning practice as accumulating self-knowledge -->
+          <p v-if="streakNudge" class="streak-nudge">{{ streakNudge }}</p>
+
           <!-- Today's Practice — three-step daily ritual sequence -->
           <TodaysPractice v-if="token" />
 
@@ -861,6 +875,15 @@ onUnmounted(() => {
 
 .streak-dot--active {
   background: #fb923c;
+}
+
+.streak-nudge {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  margin: -0.5rem auto 1rem;
+  max-width: 22rem;
 }
 
 </style>

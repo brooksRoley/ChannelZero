@@ -532,7 +532,7 @@ onUnmounted(() => {
 <template>
   <div class="discovery">
     <!-- Full-screen physics canvas -->
-    <canvas ref="canvasRef" class="discovery-canvas" />
+    <canvas ref="canvasRef" class="discovery-canvas" aria-hidden="true" />
 
     <!-- UI overlay -->
     <div :class="['discovery-ui', { 'discovery-ui--fade': transitioning }]">

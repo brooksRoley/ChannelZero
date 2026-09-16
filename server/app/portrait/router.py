@@ -57,9 +57,11 @@ async def get_portrait(user_id: UUID = Depends(get_current_user_id)) -> Portrait
     return PortraitStatus(status="ready", **base)
 
 
-@router.post("/generate")
+@router.post("/generate", response_model=PortraitStatus)
 @limiter.limit("5/hour")
-async def generate_portrait(request: Request, user_id: UUID = Depends(get_current_user_id)):
+async def generate_portrait(
+    request: Request, user_id: UUID = Depends(get_current_user_id)
+) -> PortraitStatus:
     data = await fetch_portrait_data(user_id)
 
     if len(data.connected) < MIN_PROVIDERS:
@@ -82,8 +84,11 @@ async def generate_portrait(request: Request, user_id: UUID = Depends(get_curren
             detail="Portrait generation failed upstream — try again",
         ) from exc
 
-    return {
-        "portrait": portrait,
-        "generated_at": datetime.now(timezone.utc),
-        "source_providers": data.connected,
-    }
+    return PortraitStatus(
+        status="ready",
+        portrait=portrait,
+        generated_at=datetime.now(timezone.utc),
+        source_providers=data.connected,
+        connected_providers=data.connected,
+        llm_available=True,
+    )
