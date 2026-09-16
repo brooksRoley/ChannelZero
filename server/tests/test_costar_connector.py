@@ -230,21 +230,17 @@ class TestCoStarIngestEndpoint:
 
 
 # ── GET /costar/analyze ───────────────────────────────────────────────────────
-# NOTE: costar_analyze calls get_settings() but never uses the result — dead code
-# that requires env vars in any environment. Patch it so tests don't need real secrets.
 
 class TestCoStarAnalyzeEndpoint:
     def test_404_when_no_row(self):
         conn = FakeConn()
-        with patch("app.costar.router.get_conn", make_get_conn(conn)), \
-             patch("app.costar.router.get_settings", return_value=MagicMock()):
+        with patch("app.costar.router.get_conn", make_get_conn(conn)):
             r = TestClient(_make_app(), raise_server_exceptions=False).get("/api/costar/analyze")
         assert r.status_code == 404
 
     def test_404_when_data_null(self):
         conn = FakeConn(fetchrow_results=[{"costar_data": None}])
-        with patch("app.costar.router.get_conn", make_get_conn(conn)), \
-             patch("app.costar.router.get_settings", return_value=MagicMock()):
+        with patch("app.costar.router.get_conn", make_get_conn(conn)):
             r = TestClient(_make_app(), raise_server_exceptions=False).get("/api/costar/analyze")
         assert r.status_code == 404
 
@@ -257,7 +253,6 @@ class TestCoStarAnalyzeEndpoint:
         }
         conn = FakeConn(fetchrow_results=[{"costar_data": json.dumps(profile)}])
         with patch("app.costar.router.get_conn", make_get_conn(conn)), \
-             patch("app.costar.router.get_settings", return_value=MagicMock()), \
              patch(
                  "app.costar.router.chat_completion",
                  new=AsyncMock(return_value="Your water-dominant chart reveals deep intuition."),
