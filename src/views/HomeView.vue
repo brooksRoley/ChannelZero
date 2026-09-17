@@ -3,6 +3,7 @@ import { ref, reactive, computed, nextTick, watch, onMounted, onUnmounted } from
 import { useRouter } from 'vue-router'
 import { usePollStore } from '@/composables/usePollStore'
 import { useAnalytics, type StreakData } from '@/composables/useAnalytics'
+import { useAuthStore } from '@/composables/useAuthStore'
 import { useCosmicPhysics } from '@/composables/useCosmicPhysics'
 import { useBinauralEngine } from '@/composables/useBinauralEngine'
 import { useZenMode } from '@/composables/useZenMode'
@@ -107,6 +108,10 @@ const otherSessions = computed(() => sessions.value.filter((s) => !s.recommended
 // ── Self-expression streak (routine / ritual loop) ───────────────
 const { fetchStreak } = useAnalytics()
 const streak = ref<StreakData | null>(null)
+
+// ── Portrait staleness nudge ──────────────────────────────────────
+const { apiFetch, isAuthenticated } = useAuthStore()
+const portraitStale = ref(false)
 
 const streakNudge = computed(() => {
   if (!streak.value || streak.value.streak < 2) return ''
@@ -429,6 +434,11 @@ onMounted(async () => {
   await nextTick()
   updateCardAttractors()
   fetchStreak().then((s) => { streak.value = s })
+  if (isAuthenticated.value) {
+    apiFetch<{ status: string }>('/api/portrait')
+      .then((r) => { portraitStale.value = r?.status === 'stale' })
+      .catch(() => {})
+  }
 })
 
 onUnmounted(() => {
@@ -512,6 +522,16 @@ onUnmounted(() => {
 
           <!-- Today's Practice — three-step daily ritual sequence -->
           <TodaysPractice v-if="token" />
+
+          <!-- Portrait staleness nudge — surfaces when portrait has drifted from current data -->
+          <RouterLink
+            v-if="portraitStale"
+            to="/portrait"
+            class="portrait-nudge"
+          >
+            <span class="portrait-nudge-icon" aria-hidden="true">◈</span>
+            <span class="portrait-nudge-text">Your portrait has new data — update synthesis →</span>
+          </RouterLink>
 
           <!-- Featured card -->
           <div
@@ -884,6 +904,44 @@ onUnmounted(() => {
   letter-spacing: 0.02em;
   margin: -0.5rem auto 1rem;
   max-width: 22rem;
+}
+
+/* ── Portrait staleness nudge ── */
+.portrait-nudge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: fit-content;
+  margin: 0.5rem auto 1rem;
+  padding: 0.4rem 0.85rem;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 2rem;
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.portrait-nudge:hover {
+  background: rgba(99, 102, 241, 0.14);
+  border-color: rgba(99, 102, 241, 0.45);
+}
+
+.portrait-nudge:focus-visible {
+  outline: 2px solid rgba(99, 102, 241, 0.5);
+  outline-offset: 2px;
+}
+
+.portrait-nudge-icon {
+  font-size: 0.9rem;
+  color: #818cf8;
+  line-height: 1;
+}
+
+.portrait-nudge-text {
+  font-size: 0.75rem;
+  color: #a5b4fc;
+  font-style: italic;
+  letter-spacing: 0.02em;
 }
 
 </style>
