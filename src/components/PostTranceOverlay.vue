@@ -214,7 +214,8 @@ function handleBackdropClick(e: MouseEvent) {
     >
       <!-- Close -->
       <button
-        class="absolute top-3 right-3 text-gray-600 hover:text-gray-400 text-sm"
+        class="absolute top-3 right-3 text-gray-600 hover:text-gray-400 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400/60 rounded"
+        aria-label="Close"
         @click="emit('close')"
       >✕</button>
 
@@ -244,12 +245,13 @@ function handleBackdropClick(e: MouseEvent) {
             <button
               v-for="n in likertMax"
               :key="n"
-              class="w-9 h-9 rounded-lg text-sm font-medium transition-all"
+              class="w-9 h-9 rounded-lg text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400/60"
               :class="
                 selectedValue === n
                   ? 'bg-purple-600 text-white scale-110'
                   : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-200'
               "
+              :aria-label="`${n} out of ${likertMax}`"
               :disabled="submitting"
               @click="submit(n)"
             >{{ n }}</button>
@@ -260,7 +262,7 @@ function handleBackdropClick(e: MouseEvent) {
             <button
               v-for="(opt, idx) in currentItem.options"
               :key="opt"
-              class="w-full py-2 px-3 rounded-lg text-sm text-left transition-all"
+              class="w-full py-2 px-3 rounded-lg text-sm text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400/60"
               :class="
                 selectedValue === idx
                   ? 'bg-purple-600 text-white'
