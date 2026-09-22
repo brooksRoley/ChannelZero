@@ -32,6 +32,7 @@ class FakeConn:
         self.fetch_results = list(fetch_results or [])
         self.fetchrow_calls: list[tuple] = []
         self.execute_calls: list[tuple] = []
+        self.executemany_calls: list[tuple] = []
 
     async def fetchrow(self, query, *args):
         self.fetchrow_calls.append((query, args))
@@ -47,6 +48,10 @@ class FakeConn:
     async def execute(self, query, *args):
         self.execute_calls.append((query, args))
         return "UPDATE 1"
+
+    async def executemany(self, query, args_seq):
+        self.executemany_calls.append((query, list(args_seq)))
+        return None
 
 
 def make_get_conn(conn: FakeConn):
