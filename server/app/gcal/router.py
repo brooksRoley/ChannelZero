@@ -92,7 +92,10 @@ async def gcal_connect(ct: str = Query(..., description="Short-lived connect tok
         "access_type": "offline",
         "prompt": "consent",
     }
-    return RedirectResponse(f"{_GOOGLE_AUTH_URL}?{urlencode(params)}")
+    resp = RedirectResponse(f"{_GOOGLE_AUTH_URL}?{urlencode(params)}")
+    # Prevent the ?ct= token from leaking to Google via the Referer header.
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    return resp
 
 
 @router.get("/callback")
