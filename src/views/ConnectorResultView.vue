@@ -38,6 +38,17 @@
       </div>
       <div v-else-if="narrativeError" class="text-gray-600 font-mono text-sm space-y-4">
         <p>{{ narrativeErrorMsg }}</p>
+        <!-- Rate-limit: auto-retry countdown + manual retry -->
+        <div v-if="narrativeIsRateLimited" class="flex items-center gap-3">
+          <button
+            @click="retryNarrative"
+            class="text-xs font-mono px-4 py-2 rounded-full border transition-colors"
+            :style="{ borderColor: cfg?.color + '60', color: cfg?.color }"
+          >Retry now</button>
+          <span v-if="narrativeRetryIn > 0" class="text-xs text-gray-700 font-mono">
+            auto in {{ narrativeRetryIn }}s
+          </span>
+        </div>
         <button
           v-if="hasSyncEndpoint && narrativeErrorMsg.includes('No data')"
           :disabled="syncing"
@@ -213,6 +224,19 @@
       </div>
     </section>
 
+    <!-- Section 6a: Second-connector nudge — shown when exactly 1 stream connected -->
+    <section v-if="connectedCount === 1" class="relative max-w-2xl mx-auto px-6 pb-16 text-center">
+      <router-link
+        to="/calibrate"
+        class="block rounded-2xl border border-indigo-400/30 bg-indigo-500/5 p-8 hover:bg-indigo-500/10 hover:border-indigo-400/50 transition-colors group"
+      >
+        <p class="text-xs uppercase tracking-[0.3em] text-indigo-400/50 font-mono mb-3">Unlock your portrait</p>
+        <h3 class="text-xl font-bold text-indigo-300 group-hover:text-white transition-colors mb-2">Connect one more signal</h3>
+        <p class="text-sm text-gray-500 font-mono">Add a second data source to unlock your full psychoanalytic portrait — a synthesized reading across all your connected streams.</p>
+        <p class="mt-4 text-xs font-mono text-indigo-400/40 group-hover:text-indigo-400 transition-colors">Connect another &rarr;</p>
+      </router-link>
+    </section>
+
     <!-- Section 6: Portrait CTA — shown when 2+ streams connected -->
     <section v-if="connectedCount >= 2" class="relative max-w-2xl mx-auto px-6 pb-32 text-center">
       <router-link
@@ -312,6 +336,9 @@ const narrative = ref('')
 const narrativeLoading = ref(false)
 const narrativeError = ref(false)
 const narrativeErrorMsg = ref('Analysis not available yet.')
+const narrativeIsRateLimited = ref(false)
+const narrativeRetryIn = ref(0)
+let _retryTimer: ReturnType<typeof setInterval> | null = null
 const narrativeParagraphs = computed(() =>
   narrative.value.split(/\n\n+/).filter(p => p.trim())
 )
@@ -554,6 +581,24 @@ async function fetchProfile() {
   profileLoading.value = false
 }
 
+function retryNarrative() {
+  if (_retryTimer) { clearInterval(_retryTimer); _retryTimer = null }
+  fetchNarrative()
+}
+
+function startRetryCountdown(seconds = 15) {
+  narrativeRetryIn.value = seconds
+  if (_retryTimer) clearInterval(_retryTimer)
+  _retryTimer = setInterval(() => {
+    narrativeRetryIn.value -= 1
+    if (narrativeRetryIn.value <= 0) {
+      if (_retryTimer) clearInterval(_retryTimer)
+      _retryTimer = null
+      fetchNarrative()
+    }
+  }, 1000)
+}
+
 async function fetchNarrative() {
   if (!provider.value || !cfg.value) return
   if (!llmAvailable.value) {
@@ -563,13 +608,19 @@ async function fetchNarrative() {
   }
   narrativeLoading.value = true
   narrativeError.value = false
+  narrativeIsRateLimited.value = false
+  if (_retryTimer) { clearInterval(_retryTimer); _retryTimer = null }
   try {
     const data = await apiFetch<{ narrative: string }>(analyzeEndpoint(provider.value))
     narrative.value = data.narrative || ''
   } catch (e: any) {
     narrativeError.value = true
     const msg = String(e?.message || '')
-    if (msg.includes('404')) {
+    if (msg.includes('429')) {
+      narrativeIsRateLimited.value = true
+      narrativeErrorMsg.value = 'The analysis engine is busy — auto-retrying shortly.'
+      startRetryCountdown(15)
+    } else if (msg.includes('404')) {
       narrativeErrorMsg.value = 'No data captured yet — try reconnecting this provider.'
     } else if (msg.includes('503')) {
       narrativeErrorMsg.value = 'Narrative engine offline — LLM unavailable or not configured.'
@@ -663,6 +714,7 @@ onUnmounted(() => {
   cosmicHandle.value?.destroy()
   narrativeObserver?.disconnect()
   statObserver?.disconnect()
+  if (_retryTimer) clearInterval(_retryTimer)
 })
 </script>
 
