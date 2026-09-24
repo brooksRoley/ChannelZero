@@ -111,6 +111,12 @@ async def chat_completion(
         except Exception:
             err_body = ""
         logger.error("LLM upstream error: %s %s — %s", provider, resp.status_code, err_body)
+        if resp.status_code == 429:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="LLM temporarily rate-limited — please retry in a moment.",
+                headers={"Retry-After": "15"},
+            )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"LLM call failed ({provider} {resp.status_code}): {err_body[:120]}",
