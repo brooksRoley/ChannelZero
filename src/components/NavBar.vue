@@ -513,8 +513,8 @@ onUnmounted(() => {
   <!-- Text edit modal -->
   <Teleport to="body">
     <div v-if="showTextModal" class="modal-overlay" @click.self="showTextModal = false">
-      <div class="modal">
-        <h2>Enter Text</h2>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="text-modal-title">
+        <h2 id="text-modal-title">Enter Text</h2>
 
         <label class="modal-file-upload">
           <input type="file" accept=".txt,.md" @change="handleFileUpload" />
@@ -529,6 +529,7 @@ onUnmounted(() => {
           placeholder="Paste your text here..."
           class="modal-textarea"
           rows="10"
+          autofocus
         ></textarea>
 
         <div class="modal-actions">
@@ -548,8 +549,8 @@ onUnmounted(() => {
   <!-- Background upload modal -->
   <Teleport to="body">
     <div v-if="showBgModal" class="modal-overlay" @click.self="showBgModal = false">
-      <div class="modal">
-        <h2>Set Background</h2>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="bg-modal-title">
+        <h2 id="bg-modal-title">Set Background</h2>
 
         <div v-if="backgroundMedia" class="bg-preview">
           <video
@@ -777,6 +778,13 @@ onUnmounted(() => {
 .menu-btn:hover {
   color: #e2e8f0;
   border-color: rgba(255, 255, 255, 0.25);
+}
+
+.menu-btn:focus-visible,
+.auth-btn:focus-visible,
+.fullscreen-btn:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
 }
 
 /* ── Auth button ── */
@@ -1137,6 +1145,7 @@ onUnmounted(() => {
   left: 50%;
   transform: translateX(-50%);
   width: 220px;
+  max-width: min(220px, calc(100vw - 2rem));
   background: rgba(10, 8, 20, 0.97);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 0.55rem;
