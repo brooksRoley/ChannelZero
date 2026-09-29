@@ -1,5 +1,4 @@
-"""
-Shared OAuth2 connector base — eliminates boilerplate across provider routers.
+"""Shared OAuth2 connector base — eliminates boilerplate across provider routers.
 
 Handles:
   - State JWT creation / verification with one-time nonce
@@ -54,7 +53,7 @@ async def verify_oauth_state(state: str) -> str:
     if not nonce:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid OAuth state \u2014 missing nonce",
+            detail="Invalid OAuth state — missing nonce",
         )
 
     async with get_conn() as conn:
@@ -66,7 +65,7 @@ async def verify_oauth_state(state: str) -> str:
         except Exception:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="OAuth state already consumed \u2014 possible replay attack",
+                detail="OAuth state already consumed — possible replay attack",
             )
 
     return payload["sub"]
@@ -76,25 +75,30 @@ async def verify_oauth_state(state: str) -> str:
 
 
 async def validate_connect_token(ct: str) -> dict:
-    """Validate a short-lived single-use connect token from /api/auth/connect-token.
+    """Validate and atomically consume a short-lived connect token.
 
-    Returns {"sub": user_id_str} or raises 401/410.
-    The token is consumed on first use so a leaked URL cannot be replayed.
+    Uses a single UPDATE…RETURNING to eliminate the TOCTOU race that existed
+    when a SELECT and a separate UPDATE ran in different connections — two
+    concurrent requests could both pass the consumed_at IS NULL check before
+    either UPDATE ran, allowing a captured token to be used twice.
+    Returns {"sub": user_id_str} or raises 401.
     """
     async with get_conn() as conn:
         row = await conn.fetchrow(
-            "SELECT user_id, expires_at, consumed_at FROM connect_tokens WHERE token = $1",
+            """
+            UPDATE connect_tokens
+               SET consumed_at = now()
+             WHERE token = $1
+               AND consumed_at IS NULL
+               AND expires_at > now()
+            RETURNING user_id
+            """,
             ct,
         )
     if not row:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid connect token")
-    if row["consumed_at"] is not None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Connect token already used")
-    if row["expires_at"] < datetime.now(timezone.utc):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Connect token expired")
-    async with get_conn() as conn:
-        await conn.execute(
-            "UPDATE connect_tokens SET consumed_at = now() WHERE token = $1", ct
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid, expired, or already-used connect token",
         )
     return {"sub": str(row["user_id"])}
 

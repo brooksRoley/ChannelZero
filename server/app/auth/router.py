@@ -93,7 +93,8 @@ async def me(user_id: UUID = Depends(get_current_user_id)):
 
 
 @router.post("/connect-token")
-async def issue_connect_token(user_id: UUID = Depends(get_current_user_id)):
+@limiter.limit("10/minute")
+async def issue_connect_token(request: Request, user_id: UUID = Depends(get_current_user_id)):
     """Issue a 60-second single-use token for OAuth connect redirects.
 
     Redirect-based connect flows (Spotify, GCal) pass the full session JWT in
@@ -107,6 +108,11 @@ async def issue_connect_token(user_id: UUID = Depends(get_current_user_id)):
         await conn.execute(
             "INSERT INTO connect_tokens (token, user_id, expires_at) VALUES ($1, $2, $3)",
             ct, user_id, expires_at,
+        )
+        # Lazily prune expired tokens to keep the table bounded — connect tokens
+        # are 60s TTL so anything 1h old is long-dead garbage.
+        await conn.execute(
+            "DELETE FROM connect_tokens WHERE expires_at < now() - INTERVAL '1 hour'"
         )
     return {"ct": ct}
 
