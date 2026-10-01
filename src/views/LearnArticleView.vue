@@ -2,6 +2,7 @@
 import { computed, watch, defineAsyncComponent, type Component } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { LEARN_TOPICS, type LearnTopic, type LearnAnimation } from '@/data/learn'
+import { useAuthStore } from '@/composables/useAuthStore'
 
 const ANIMATIONS: Record<LearnAnimation, Component> = {
   'enfractionation': defineAsyncComponent(() => import('@/components/learn/EnfractionationAnim.vue')),
@@ -10,6 +11,7 @@ const ANIMATIONS: Record<LearnAnimation, Component> = {
 }
 
 const route = useRoute()
+const { isAuthenticated } = useAuthStore()
 
 const slug = computed(() => String(route.params.slug ?? ''))
 
@@ -33,6 +35,24 @@ const nextTopic = computed<LearnTopic | undefined>(() => {
 
 const animationComponent = computed<Component | undefined>(() =>
   topic.value?.animation ? ANIMATIONS[topic.value.animation] : undefined
+)
+
+// Connector articles link to /calibrate (auth-required). For guest users,
+// reroute to /discovery so they land on a signup flow instead of a bare login wall.
+const isConnectorArticle = computed(() =>
+  topic.value?.linkedSession?.to === '/calibrate'
+)
+
+const ctaTo = computed(() =>
+  isConnectorArticle.value && !isAuthenticated.value
+    ? '/discovery'
+    : (topic.value?.linkedSession?.to ?? '/')
+)
+
+const ctaLabel = computed(() =>
+  isConnectorArticle.value && !isAuthenticated.value
+    ? 'Join ChannelZero to try it'
+    : (topic.value?.linkedSession?.label ?? '')
 )
 
 // Re-scroll to top when slug changes
@@ -82,8 +102,8 @@ watch(
         </section>
 
         <div v-if="topic.linkedSession" class="cta-row">
-          <RouterLink :to="topic.linkedSession.to" class="cta-btn">
-            {{ topic.linkedSession.label }} <span aria-hidden="true">&rarr;</span>
+          <RouterLink :to="ctaTo" class="cta-btn">
+            {{ ctaLabel }} <span aria-hidden="true">&rarr;</span>
           </RouterLink>
         </div>
       </article>
