@@ -8,6 +8,7 @@
     >
       <canvas
         ref="canvasRef"
+        aria-hidden="true"
         class="absolute inset-0 w-full h-full transition-opacity duration-700 cursor-crosshair"
         :style="{ opacity: canvasOpacity }"
         @click="onCanvasClick"
@@ -230,7 +231,7 @@
     <div class="fixed bottom-6 left-6 z-20">
       <router-link
         to="/calibrate"
-        class="text-xs font-mono text-gray-600 hover:text-gray-400 transition-colors flex items-center gap-1"
+        class="text-xs font-mono text-gray-600 hover:text-gray-400 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/50 rounded"
       >
         &#8592; Calibrate
       </router-link>
