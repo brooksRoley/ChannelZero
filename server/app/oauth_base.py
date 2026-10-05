@@ -29,7 +29,7 @@ from .db import get_conn
 from .llm.encryption import decrypt_api_key, encrypt_api_key
 
 
-# ── State helpers ─────────────────────────────────────────────────────────────
+# ── State helpers ─────────────────────────────────────────────────────────────────────────
 # Identical across every connector — JWT with a one-time nonce.
 
 
@@ -54,7 +54,7 @@ async def verify_oauth_state(state: str) -> str:
     if not nonce:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid OAuth state \u2014 missing nonce",
+            detail="Invalid OAuth state — missing nonce",
         )
 
     async with get_conn() as conn:
@@ -66,13 +66,19 @@ async def verify_oauth_state(state: str) -> str:
         except Exception:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="OAuth state already consumed \u2014 possible replay attack",
+                detail="OAuth state already consumed — possible replay attack",
             )
+        try:
+            await conn.execute(
+                "DELETE FROM _oauth_nonces WHERE consumed_at < now() - INTERVAL '24 hours'"
+            )
+        except Exception:
+            pass  # best-effort; never block the auth flow
 
     return payload["sub"]
 
 
-# ── Token helpers ─────────────────────────────────────────────────────────────
+# ── Token helpers ─────────────────────────────────────────────────────────────────────────
 
 
 async def validate_connect_token(ct: str) -> dict:
