@@ -7,6 +7,7 @@ Covers:
 - PATCH /journal/entries/{id}: update happy path, 404 when missing
 - DELETE /journal/entries/{id}: delete happy path, 404 when "DELETE 0"
 - POST /journal/sync: bulk upsert + fetch, last_sync filter, entries cap >200 → 422
+  + regression: upsert SQL must include 'id' column so ON CONFLICT (id) fires
 
 Uses FakeConn from conftest — no real DB or external HTTP calls.
 """
@@ -57,7 +58,7 @@ class FakeConnDeleteMiss(FakeConn):
         return "DELETE 0"
 
 
-# ── POST /api/journal/entries ─────────────────────────────────────────────────
+# ── POST /api/journal/entries ────────────────────────────────────────────────
 
 
 class TestCreateEntry:
@@ -114,7 +115,7 @@ class TestCreateEntry:
         assert resp.json()["drawings"][0]["type"] == "path"
 
 
-# ── GET /api/journal/entries ──────────────────────────────────────────────────
+# ── GET /api/journal/entries ──────────────────────────────────────────────
 
 
 class TestListEntries:
@@ -152,7 +153,7 @@ class TestListEntries:
         assert resp.json()[0]["drawings"] == [{"type": "circle"}]
 
 
-# ── PATCH /api/journal/entries/{id} ──────────────────────────────────────────
+# ── PATCH /api/journal/entries/{id} ────────────────────────────────────────────
 
 
 class TestUpdateEntry:
@@ -188,7 +189,7 @@ class TestUpdateEntry:
         assert resp.json()["mood"] == "serene"
 
 
-# ── DELETE /api/journal/entries/{id} ─────────────────────────────────────────
+# ── DELETE /api/journal/entries/{id} ────────────────────────────────────────────
 
 
 class TestDeleteEntry:
@@ -205,7 +206,7 @@ class TestDeleteEntry:
         assert resp.status_code == 404
 
 
-# ── POST /api/journal/sync ────────────────────────────────────────────────────
+# ── POST /api/journal/sync ────────────────────────────────────────────────
 
 
 class TestSyncEntries:
@@ -237,6 +238,42 @@ class TestSyncEntries:
             )
         assert resp.status_code == 200
         assert conn.execute_calls  # upsert ran for the one client entry
+
+    def test_sync_upsert_sql_includes_id_column(self):
+        """Regression: ON CONFLICT (id) requires 'id' in the INSERT column list.
+        Without it, every sync created a duplicate entry instead of updating."""
+        conn = FakeConn(fetch_results=[[]])
+        with (
+            patch("app.journal.router.get_tx", make_get_conn(conn)),
+            patch("app.journal.router.embed_and_upsert_journal", new=AsyncMock()),
+        ):
+            TestClient(_make_app()).post(
+                "/api/journal/sync",
+                json={"entries": [{"text": "A re-synced entry."}]},
+            )
+        assert conn.execute_calls, "expected execute call for sync upsert"
+        upsert_sql = conn.execute_calls[0][0]
+        col_section = upsert_sql.split("VALUES")[0]
+        assert "id" in col_section, (
+            "Journal sync INSERT must include 'id' in the column list — "
+            "ON CONFLICT (id) is dead code without it (silent duplicate-entry bug)."
+        )
+
+    def test_sync_client_id_passed_to_execute(self):
+        """Client-supplied entry id must be forwarded as first execute param."""
+        client_id = UUID("cccccccc-cccc-cccc-cccc-cccccccccccc")
+        conn = FakeConn(fetch_results=[[]])
+        with (
+            patch("app.journal.router.get_tx", make_get_conn(conn)),
+            patch("app.journal.router.embed_and_upsert_journal", new=AsyncMock()),
+        ):
+            TestClient(_make_app()).post(
+                "/api/journal/sync",
+                json={"entries": [{"id": str(client_id), "text": "Known ID entry."}]},
+            )
+        assert conn.execute_calls
+        _, args = conn.execute_calls[0]
+        assert args[0] == client_id, "client-supplied id must be $1 in the execute call"
 
     def test_sync_with_last_sync_timestamp(self):
         conn = FakeConn(fetch_results=[[_entry_row()]])

@@ -152,12 +152,12 @@ async def sync_entries(
     now = datetime.now(timezone.utc)
 
     async with get_tx() as conn:
-        # Upsert client entries
+        # Upsert client entries — id in INSERT activates ON CONFLICT (id)
         for entry in body.entries:
             await conn.execute(
                 """
-                INSERT INTO journal_entries (user_id, text, drawings, mood, poll_token_id, created_at, updated_at)
-                VALUES ($1, $2, $3::jsonb, $4, $5, COALESCE($6, now()), now())
+                INSERT INTO journal_entries (id, user_id, text, drawings, mood, poll_token_id, created_at, updated_at)
+                VALUES (COALESCE($1, gen_random_uuid()), $2, $3::jsonb, $4, $5, $6, COALESCE($7, now()), now())
                 ON CONFLICT (id) DO UPDATE SET
                     text = EXCLUDED.text,
                     drawings = EXCLUDED.drawings,
@@ -165,6 +165,7 @@ async def sync_entries(
                     updated_at = now()
                 WHERE journal_entries.updated_at < EXCLUDED.updated_at
                 """,
+                entry.id,
                 user_id,
                 entry.text,
                 json.dumps(entry.drawings),
