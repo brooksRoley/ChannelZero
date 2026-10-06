@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 
 class JournalEntryCreate(BaseModel):
+    id: UUID | None = None  # preserved for sync — stable upsert key; ignored by POST /entries
     text: str = Field(default="", max_length=50_000)
     drawings: list[dict] = Field(default_factory=list, max_length=500)
     mood: str | None = Field(default=None, max_length=100)
