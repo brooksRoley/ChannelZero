@@ -5,7 +5,7 @@ Letterboxd uses a proprietary API with HMAC-signed requests and an
 API key + secret issued via their developer program.
 
 Flow:
-  1. GET /letterboxd/connect?token=<JWT>  → return auth URL
+  1. GET /letterboxd/connect  → Authorization: Bearer <JWT> header → return auth URL
   2. GET /letterboxd/callback?code=&state= → exchange code, fetch diary, store
 
 TODO: Requires LETTERBOXD_API_KEY + LETTERBOXD_API_SECRET.

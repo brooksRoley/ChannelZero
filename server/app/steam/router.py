@@ -6,7 +6,7 @@ we fetch game library + recent playtime via the Steam Web API to build
 the "Isolation Metric" for the Oracle.
 
 Flow:
-  1. GET /steam/connect?token=<JWT>   → return OpenID auth URL
+  1. GET /steam/connect  → Authorization: Bearer <JWT> header → return OpenID auth URL
   2. GET /steam/callback?<openid...>  → verify identity, fetch games, store
 
 Requires: STEAM_API_KEY (free from https://steamcommunity.com/dev/apikey)
