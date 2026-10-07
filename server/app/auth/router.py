@@ -104,6 +104,15 @@ async def issue_connect_token(user_id: UUID = Depends(get_current_user_id)):
     ct = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(seconds=60)
     async with get_conn() as conn:
+        # Purge expired/consumed tokens on each issue to prevent indefinite accumulation.
+        # Migration 026 was a one-time purge; this keeps the table lean without a scheduler.
+        await conn.execute(
+            """
+            DELETE FROM connect_tokens
+            WHERE expires_at < now() - INTERVAL '1 hour'
+               OR (consumed_at IS NOT NULL AND consumed_at < now() - INTERVAL '24 hours')
+            """,
+        )
         await conn.execute(
             "INSERT INTO connect_tokens (token, user_id, expires_at) VALUES ($1, $2, $3)",
             ct, user_id, expires_at,
