@@ -108,6 +108,15 @@ const streakDays = computed(() => {
   return streak
 })
 
+// ── Practice label (time-sensitive) ───────────────────────────────
+
+const practiceLabel = computed(() => {
+  const hour = new Date().getHours()
+  if (hour < 12) return 'Morning Practice'
+  if (hour < 18) return 'Afternoon Practice'
+  return "Tonight's Practice"
+})
+
 // ── Actions ────────────────────────────────────────────────────────
 
 function runSynthesis() {
@@ -182,7 +191,7 @@ const accent = computed(() => token.value?.palette?.accent || '#a78bfa')
       <!-- Streak + Stats ribbon -->
       <div class="stats-ribbon">
         <div class="stat-pill">
-          <span class="stat-icon">🔥</span>
+          <span class="stat-icon">&#128293;</span>
           <span class="stat-num">{{ streakDays }}</span>
           <span class="stat-label">day streak</span>
         </div>
@@ -239,7 +248,7 @@ const accent = computed(() => token.value?.palette?.accent || '#a78bfa')
             >{{ kw }}</span>
           </div>
           <button class="btn-ghost" @click="readSynthesisAloud">
-            {{ isSpeaking ? '■ Stop' : '▶ Read aloud' }}
+            {{ isSpeaking ? '&#9632; Stop' : '&#9654; Read aloud' }}
           </button>
           <div v-if="isSpeaking" class="tts-bar">
             <div class="tts-fill" :style="{ width: ttsProgress + '%', background: accent }" />
@@ -268,7 +277,7 @@ const accent = computed(() => token.value?.palette?.accent || '#a78bfa')
             :disabled="!intentionText.trim()"
             @click="saveIntention"
           >
-            {{ intentionSaved ? '✓ Saved' : 'Set' }}
+            {{ intentionSaved ? '&#10003; Saved' : 'Set' }}
           </button>
         </div>
       </section>
@@ -296,6 +305,28 @@ const accent = computed(() => token.value?.palette?.accent || '#a78bfa')
           Open Journal
         </button>
       </div>
+
+      <!-- Today's Practice -->
+      <section class="section practice-section">
+        <h2 class="section-heading">{{ practiceLabel }}</h2>
+        <div class="practice-grid">
+          <button class="practice-btn" @click="router.push('/zeromind')">
+            <span class="practice-icon" aria-hidden="true">&#9678;</span>
+            <span class="practice-label">Zeromind</span>
+            <span class="practice-desc">Binaural entrainment</span>
+          </button>
+          <button class="practice-btn" @click="router.push('/audio')">
+            <span class="practice-icon" aria-hidden="true">&#9835;</span>
+            <span class="practice-label">Audio Journey</span>
+            <span class="practice-desc">Adaptive trance audio</span>
+          </button>
+          <button class="practice-btn" @click="router.push('/spiral')">
+            <span class="practice-icon" aria-hidden="true">&#9900;</span>
+            <span class="practice-label">Spiral</span>
+            <span class="practice-desc">Visual hypnosis</span>
+          </button>
+        </div>
+      </section>
 
       <!-- Pipeline actions -->
       <section class="section pipeline-section">
@@ -662,6 +693,59 @@ const accent = computed(() => token.value?.palette?.accent || '#a78bfa')
 .btn-primary:focus-visible {
   outline: 2px solid rgba(167, 139, 250, 0.7);
   outline-offset: 2px;
+}
+
+/* ── Practice ── */
+.practice-section {
+  border-color: rgba(167, 139, 250, 0.12);
+}
+
+.practice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+}
+
+.practice-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.85rem 0.5rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-family: inherit;
+  color: #cbd5e1;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.practice-btn:hover {
+  background: rgba(167, 139, 250, 0.08);
+  border-color: rgba(167, 139, 250, 0.3);
+}
+
+.practice-btn:focus-visible {
+  outline: 2px solid rgba(167, 139, 250, 0.7);
+  outline-offset: 2px;
+}
+
+.practice-icon {
+  font-size: 1.1rem;
+  color: rgba(167, 139, 250, 0.7);
+  line-height: 1;
+}
+
+.practice-label {
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.practice-desc {
+  font-size: 0.65rem;
+  color: #64748b;
+  text-align: center;
 }
 
 /* ── Pipeline ── */
