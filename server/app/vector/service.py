@@ -286,42 +286,6 @@ async def apply_karma_penalty(user_id: str, karma_delta: float) -> None:
 
 # ── Journal RAG ──────────────────────────────────────────────────────────────
 
-async def embed_and_upsert_journal(
-    entry_id: str,
-    user_id: str,
-    text: str,
-    text_preview: str,
-    mood: str | None,
-    created_at: str,
-) -> None:
-    """Fire-and-forget: embed a journal entry and store in the journal namespace."""
-    if _embeddings_disabled("embed_and_upsert_journal"):
-        return
-    if not text.strip():
-        return
-    try:
-        vector = await _embed(text, user_id=user_id, caller="embed_and_upsert_journal")
-        if not vector:
-            return
-        index = await asyncio.to_thread(_get_index_sync)
-        if index is None:
-            return
-        metadata: dict = {
-            "user_id": user_id,
-            "text_preview": text_preview,
-            "created_at": created_at,
-        }
-        if mood:
-            metadata["mood"] = mood
-        await asyncio.to_thread(
-            index.upsert,
-            vectors=[{"id": entry_id, "values": vector, "metadata": metadata}],
-            namespace=NAMESPACE_JOURNAL,
-        )
-    except Exception:
-        logger.exception("Pinecone journal upsert failed for entry %s", entry_id)
-
-
 async def query_relevant_journal(user_id: str, query_text: str, top_k: int = 5) -> list[dict]:
     """Return metadata of top-K journal entries semantically closest to query_text."""
     if _embeddings_disabled("query_relevant_journal"):

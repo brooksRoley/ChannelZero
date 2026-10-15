@@ -11,6 +11,8 @@ Product copy, feature framing, and routine-agent proposals should reflect this l
 ChannelZero is a suite of **immersive self-expression and hypnosis experiences** with an
 embedded psychoanalysis layer. The product is, in priority order:
 1. **Self-expression** — journal (text/draw/audio), glass video studio, speed reader, check-in.
+   The journal is **local-only by design** (localStorage via `useJournalStore`); entries never
+   leave the device. The server-side journal API was removed 2026-10-14 — don't re-add sync.
 2. **Hypnosis / entrainment** — binaural & trance audio, spiral, star-tunnel breath journey,
    generative visuals (Tone.js + Web Audio + Canvas).
 3. **Routine / ritual building** — daily loops the user returns to.
@@ -51,7 +53,6 @@ embedded psychoanalysis layer. The product is, in priority order:
     /gcal         — Google Calendar OAuth + temporal pattern extraction
     /github       — GitHub OAuth + developer profile ingestion
     /intake       — Psychoanalytic confessional pipeline + matching
-    /journal      — Journal CRUD + vector embeddings
     /letterboxd   — Letterboxd API film taste ingestion
     /llm          — Encryption helpers (AES-256-GCM)
     /oracle       — 7D psychological synthesis + Pinecone upsert

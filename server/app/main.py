@@ -16,7 +16,6 @@ from .db import init_pool, close_pool
 from .ratelimit import limiter
 from .auth.router import router as auth_router
 from .auth.oauth import router as oauth_router
-from .journal.router import router as journal_router
 from .poll.router import router as poll_router
 from .llm.router import router as llm_router
 from .intake.router import router as intake_router
@@ -160,7 +159,6 @@ def create_app() -> FastAPI:
     prefix = settings.api_prefix
     app.include_router(auth_router, prefix=f"{prefix}/auth", tags=["auth"])
     app.include_router(oauth_router, prefix=f"{prefix}/auth", tags=["oauth"])
-    app.include_router(journal_router, prefix=f"{prefix}/journal", tags=["journal"])
     app.include_router(poll_router, prefix=f"{prefix}/poll", tags=["poll"])
     app.include_router(llm_router, prefix=f"{prefix}/llm", tags=["llm"])
     app.include_router(intake_router, prefix=f"{prefix}/intake", tags=["intake"])
