@@ -22,7 +22,6 @@ import asyncio
 import secrets
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import jwt as pyjwt
@@ -39,8 +38,6 @@ from tests.conftest import FakeConn, make_get_conn
 
 _USER_ID = uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 _FAKE_SECRET = "test-jwt-secret-for-oauth-base-tests-xyzzy"
-_FUTURE = datetime.now(timezone.utc) + timedelta(hours=1)
-_PAST = datetime.now(timezone.utc) - timedelta(hours=1)
 
 
 def _fake_settings():
@@ -56,21 +53,25 @@ class TestValidateConnectToken:
     """Security-critical path — was zero-covered before this suite."""
 
     def test_valid_token_returns_sub(self):
-        row = {"user_id": _USER_ID, "expires_at": _FUTURE, "consumed_at": None}
-        conn = FakeConn(fetchrow_results=[row])
+        conn = FakeConn(fetchrow_results=[{"user_id": _USER_ID}])
         with patch("app.oauth_base.get_conn", make_get_conn(conn)):
             result = asyncio.run(validate_connect_token("valid-token"))
         assert result == {"sub": str(_USER_ID)}
 
-    def test_valid_token_issues_consumed_at_update(self):
-        """Consuming a valid token must record consumed_at via UPDATE."""
-        row = {"user_id": _USER_ID, "expires_at": _FUTURE, "consumed_at": None}
-        conn = FakeConn(fetchrow_results=[row])
+    def test_consumption_is_single_atomic_update(self):
+        """Check-and-consume must be one UPDATE…RETURNING so concurrent requests
+        cannot both pass the consumed_at IS NULL check (TOCTOU)."""
+        conn = FakeConn(fetchrow_results=[{"user_id": _USER_ID}])
         with patch("app.oauth_base.get_conn", make_get_conn(conn)):
             asyncio.run(validate_connect_token("valid-token"))
-        assert any("UPDATE connect_tokens" in call[0] for call in conn.execute_calls), (
-            "validate_connect_token did not UPDATE connect_tokens after a valid token"
-        )
+        assert len(conn.fetchrow_calls) == 1
+        query, args = conn.fetchrow_calls[0]
+        assert "UPDATE connect_tokens" in query
+        assert "RETURNING user_id" in query
+        assert "consumed_at IS NULL" in query
+        assert "expires_at > now()" in query
+        assert args == ("valid-token",)
+        assert conn.execute_calls == []
 
     def test_missing_token_raises_401(self):
         conn = FakeConn(fetchrow_results=[None])
@@ -79,43 +80,15 @@ class TestValidateConnectToken:
                 asyncio.run(validate_connect_token("ghost-token"))
         assert exc.value.status_code == 401
 
-    def test_already_consumed_token_raises_401(self):
-        row = {
-            "user_id": _USER_ID,
-            "expires_at": _FUTURE,
-            "consumed_at": datetime.now(timezone.utc),
-        }
-        conn = FakeConn(fetchrow_results=[row])
+    def test_consumed_or_expired_token_raises_401(self):
+        """Consumed and expired tokens are filtered by the UPDATE's WHERE clause,
+        so they surface as no row returned — same 401 as an unknown token."""
+        conn = FakeConn(fetchrow_results=[None])
         with patch("app.oauth_base.get_conn", make_get_conn(conn)):
             with pytest.raises(HTTPException) as exc:
-                asyncio.run(validate_connect_token("already-used-token"))
+                asyncio.run(validate_connect_token("used-or-expired"))
         assert exc.value.status_code == 401
-
-    def test_expired_token_raises_401(self):
-        row = {"user_id": _USER_ID, "expires_at": _PAST, "consumed_at": None}
-        conn = FakeConn(fetchrow_results=[row])
-        with patch("app.oauth_base.get_conn", make_get_conn(conn)):
-            with pytest.raises(HTTPException) as exc:
-                asyncio.run(validate_connect_token("expired-token"))
-        assert exc.value.status_code == 401
-
-    def test_all_rejection_cases_return_401(self):
-        """Verify all three rejection paths return 401, not 400 or 410."""
-        cases = [
-            FakeConn(fetchrow_results=[None]),  # not found
-            FakeConn(fetchrow_results=[{  # already consumed
-                "user_id": _USER_ID, "expires_at": _FUTURE,
-                "consumed_at": datetime.now(timezone.utc),
-            }]),
-            FakeConn(fetchrow_results=[{  # expired
-                "user_id": _USER_ID, "expires_at": _PAST, "consumed_at": None,
-            }]),
-        ]
-        for conn in cases:
-            with patch("app.oauth_base.get_conn", make_get_conn(conn)):
-                with pytest.raises(HTTPException) as exc:
-                    asyncio.run(validate_connect_token("tok"))
-            assert exc.value.status_code == 401
+        assert "already-used" in exc.value.detail
 
 
 # ── make_oauth_state ──────────────────────────────────────────────────────────

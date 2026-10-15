@@ -258,6 +258,21 @@ class TestSyncEntries:
         args_rows = conn.executemany_calls[0][1]
         assert str(args_rows[0][0]) == existing_id  # id forwarded to DB
 
+    def test_sync_upsert_cannot_overwrite_another_users_entry(self):
+        """A client-supplied id must not let one user update another user's row:
+        the ON CONFLICT update is guarded by user_id."""
+        conn = FakeConn(fetch_results=[[]])
+        with (
+            patch("app.journal.router.get_tx", make_get_conn(conn)),
+            patch("app.journal.router.embed_and_upsert_journal", new=AsyncMock()),
+        ):
+            TestClient(_make_app()).post(
+                "/api/journal/sync",
+                json={"entries": [{"id": str(ENTRY_ID), "text": "x", "mood": "open"}]},
+            )
+        query = conn.executemany_calls[0][0]
+        assert "journal_entries.user_id = EXCLUDED.user_id" in query
+
     def test_sync_with_last_sync_timestamp(self):
         conn = FakeConn(fetch_results=[[_entry_row()]])
         with (

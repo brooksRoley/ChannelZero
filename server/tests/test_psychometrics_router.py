@@ -180,8 +180,7 @@ class TestNarrative:
             resp = client.post("/api/psychometrics/narrative")
         assert resp.status_code == 200
         body = resp.json()
-        assert body["status"] == "success"
-        assert body["narrative"] == "You carry quiet ambition."
+        assert body == {"narrative": "You carry quiet ambition."}
 
     def test_narrative_stores_in_db(self, client):
         pool, conn = _make_pool(fetchrow_result=_mock_row(_PROFILE_DATA))
