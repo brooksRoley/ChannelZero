@@ -47,7 +47,7 @@ embedded psychoanalysis layer. The product is, in priority order:
     /auth         — Login, register, JWT, Google/X OAuth identity
     /analytics    — Admin funnel + connector metrics + insights panels
     /brain        — Image library (upload, browse, embeddings, similarity)
-    /costar       — Co-Star credential-based natal chart ingestion
+    /costar       — Co-Star natal chart (manual sign entry; Co-Star has no public API)
     /gcal         — Google Calendar OAuth + temporal pattern extraction
     /github       — GitHub OAuth + developer profile ingestion
     /intake       — Psychoanalytic confessional pipeline + matching

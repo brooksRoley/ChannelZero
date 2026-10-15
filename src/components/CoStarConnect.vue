@@ -58,50 +58,59 @@
       </svg>
     </button>
 
-    <!-- Credential modal (Co-Star has no public API) -->
+    <!-- Manual chart entry (Co-Star has no public API) -->
     <Teleport to="body">
       <div
         v-if="showModal"
         class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
         @click.self="showModal = false"
       >
-        <div class="bg-gray-900 border border-indigo-500/30 rounded-2xl p-8 w-full max-w-md shadow-2xl space-y-6">
+        <div
+          class="bg-gray-900 border border-indigo-500/30 rounded-2xl p-8 w-full max-w-md shadow-2xl space-y-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="costar-modal-title"
+        >
           <div class="text-center space-y-2">
-            <h3 class="text-xl font-bold text-indigo-400">Co&#8239;&#8212;&#8239;Star Proxy Sync</h3>
+            <h3 id="costar-modal-title" class="text-xl font-bold text-indigo-400">Your Natal Chart</h3>
             <p class="text-xs text-gray-500 font-mono">
-              Credentials are transmitted once and immediately purged. We never store your password.
+              Copy your placements from the Co&#8239;&#8212;&#8239;Star app (Profile &rarr; Chart).
+              Sun, Moon and Rising are enough.
             </p>
           </div>
 
-          <form @submit.prevent="submitCoStar" class="space-y-4">
-            <input
-              v-model="costarUsername"
-              type="text"
-              placeholder="Co-Star username or email"
-              autocomplete="username"
-              class="w-full bg-black border border-gray-700 rounded-lg px-4 py-3 text-gray-200 placeholder-gray-600 focus:border-indigo-500 focus:outline-none font-mono text-sm"
-            />
-            <input
-              v-model="costarPassword"
-              type="password"
-              placeholder="Co-Star password"
-              autocomplete="current-password"
-              class="w-full bg-black border border-gray-700 rounded-lg px-4 py-3 text-gray-200 placeholder-gray-600 focus:border-indigo-500 focus:outline-none font-mono text-sm"
-            />
-            <div class="flex gap-3">
+          <form @submit.prevent="submitChart" class="space-y-3">
+            <label
+              v-for="field in FIELDS"
+              :key="field.key"
+              class="flex items-center justify-between gap-4 font-mono text-sm text-gray-300"
+            >
+              <span>{{ field.label }}<span v-if="!field.optional" class="text-indigo-400"> *</span></span>
+              <select
+                v-model="chart[field.key]"
+                class="w-40 bg-black border border-gray-700 rounded-lg px-3 py-2 text-gray-200 focus:border-indigo-500 focus:outline-none"
+              >
+                <option value="">{{ field.optional ? '— skip —' : 'choose…' }}</option>
+                <option v-for="sign in SIGNS" :key="sign" :value="sign">{{ sign }}</option>
+              </select>
+            </label>
+
+            <p v-if="errorMessage" role="alert" class="text-xs text-rose-400 font-mono">{{ errorMessage }}</p>
+
+            <div class="flex gap-3 pt-2">
               <button
                 type="button"
                 @click="showModal = false"
                 class="flex-1 py-3 rounded-lg border border-gray-700 text-gray-400 hover:border-gray-500 transition-colors font-mono text-sm"
               >
-                ABORT
+                CANCEL
               </button>
               <button
                 type="submit"
-                :disabled="!costarUsername || !costarPassword || isConnecting"
+                :disabled="!canSubmit || isConnecting"
                 class="flex-1 py-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold transition-colors font-mono text-sm"
               >
-                {{ isConnecting ? 'INGESTING...' : 'SYNC CHART' }}
+                {{ isConnecting ? 'SAVING...' : 'SAVE CHART' }}
               </button>
             </div>
           </form>
@@ -112,7 +121,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { useAuthStore } from '@/composables/useAuthStore'
 import { useVibeStore } from '@/composables/useVibeStore'
 
@@ -122,43 +131,63 @@ const { oauthState, markConnected } = useVibeStore()
 const API = import.meta.env.VITE_API_URL || ''
 const isConnecting = ref(false)
 const showModal = ref(false)
-const costarUsername = ref('')
-const costarPassword = ref('')
+const errorMessage = ref('')
+
+const SIGNS = [
+  'Aries', 'Taurus', 'Gemini', 'Cancer', 'Leo', 'Virgo',
+  'Libra', 'Scorpio', 'Sagittarius', 'Capricorn', 'Aquarius', 'Pisces',
+]
+
+type ChartKey = 'sun_sign' | 'moon_sign' | 'rising_sign' | 'venus_sign' | 'mars_sign'
+
+const FIELDS: { key: ChartKey; label: string; optional: boolean }[] = [
+  { key: 'sun_sign', label: 'Sun', optional: false },
+  { key: 'moon_sign', label: 'Moon', optional: false },
+  { key: 'rising_sign', label: 'Rising', optional: false },
+  { key: 'venus_sign', label: 'Venus', optional: true },
+  { key: 'mars_sign', label: 'Mars', optional: true },
+]
+
+const chart = reactive<Record<ChartKey, string>>({
+  sun_sign: '', moon_sign: '', rising_sign: '', venus_sign: '', mars_sign: '',
+})
+
+const canSubmit = computed(() => !!(chart.sun_sign && chart.moon_sign && chart.rising_sign))
 
 const isConnected = computed(() => oauthState.value.costar.connected)
 
 const buttonText = computed(() => {
   if (isConnecting.value) return 'READING THE VOID...'
-  if (isConnected.value) return 'CHART SYNCED'
-  return 'CONNECT CO—STAR'
+  if (isConnected.value) return 'CHART SAVED'
+  return 'ADD CO—STAR CHART'
 })
 
-async function submitCoStar() {
-  if (isConnected.value || !token.value) return
+async function submitChart() {
+  if (isConnected.value || !token.value || !canSubmit.value) return
   isConnecting.value = true
+  errorMessage.value = ''
 
   try {
-    const res = await fetch(`${API}/api/costar/ingest`, {
+    const res = await fetch(`${API}/api/costar/manual`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token.value}`,
       },
-      body: JSON.stringify({
-        costar_username: costarUsername.value,
-        costar_password: costarPassword.value,
-      }),
+      body: JSON.stringify(chart),
     })
 
-    if (!res.ok) throw new Error('Co-Star ingestion failed')
+    if (!res.ok) {
+      const body = await res.json().catch(() => null)
+      const detail = typeof body?.detail === 'string' ? body.detail : null
+      errorMessage.value = detail ?? `Couldn't save your chart (error ${res.status}). Please try again.`
+      return
+    }
     markConnected('costar')
     showModal.value = false
-  } catch (error) {
-    console.error('Fatalistic mirror shattered:', error)
+  } catch {
+    errorMessage.value = "Couldn't reach the server. Check your connection and try again."
   } finally {
-    // Purge credentials from memory immediately
-    costarPassword.value = ''
-    costarUsername.value = ''
     isConnecting.value = false
   }
 }
