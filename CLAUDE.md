@@ -98,7 +98,9 @@ embedded psychoanalysis layer. The product is, in priority order:
 1. `npm run build` locally to verify no TypeScript errors (`vue-tsc --noEmit`)
 2. `git push origin main` → Vercel auto-deploys frontend
 3. Render auto-deploys backend on push (build dir: `server/`, start: `uvicorn server.app.main:app`)
-4. After new migrations: manually trigger `python -m server.app.migrate` or add to Render build command
+4. Render applies pending migrations automatically on deploy — **merging a migration PR runs it
+   against production Neon**. Treat destructive migrations (DROP, data rewrites) as needing explicit
+   sign-off before merge. Verify via the `_migrations` table, not by re-running migrate.
 
 ## Env Vars (Render must have all of these)
 `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `JWT_SECRET`, `SERVER_ENCRYPTION_KEY`,
