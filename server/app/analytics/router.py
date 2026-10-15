@@ -30,6 +30,7 @@ VALID_EVENTS = {
     "journal_session_completed",
     "checkin_started",
     "checkin_completed",
+    "practice_started",
     "zeromind_session_started",
     "zeromind_session_completed",
     # funnel steps
@@ -344,27 +345,29 @@ async def admin_connectors(_: UUID = Depends(require_admin)):
             SELECT
                 provider,
                 COUNT(*)                          AS feedback_count,
-                ROUND(AVG(rating)::numeric, 2)    AS avg_rating,
-                array_agg(tags)                   AS tag_arrays
+                ROUND(AVG(rating)::numeric, 2)    AS avg_rating
             FROM connector_feedback
             GROUP BY provider
             ORDER BY provider
             """
         )
 
+        # Tags are unnested rather than array_agg'd: Postgres refuses to
+        # accumulate arrays of differing lengths, and the column defaults to '{}'.
+        tag_rows = await conn.fetch(
+            """
+            SELECT provider, tag, COUNT(*) AS n
+            FROM connector_feedback, unnest(tags) AS tag
+            GROUP BY provider, tag
+            ORDER BY provider, n DESC, tag
+            """
+        )
+
     connected = {r["provider"]: r["connected_count"] for r in connection_rows}
     fb_map = {r["provider"]: dict(r) for r in feedback_rows}
-
-    # Flatten tag arrays and deduplicate
-    def flatten_tags(tag_arrays):
-        seen = set()
-        result = []
-        for arr in (tag_arrays or []):
-            for t in (arr or []):
-                if t not in seen:
-                    seen.add(t)
-                    result.append(t)
-        return result
+    tags_by_provider: dict[str, list[str]] = {}
+    for r in tag_rows:
+        tags_by_provider.setdefault(r["provider"], []).append(r["tag"])
 
     all_providers = sorted(VALID_PROVIDERS)
     results = []
@@ -377,7 +380,7 @@ async def admin_connectors(_: UUID = Depends(require_admin)):
             "connection_rate_pct": round(conn_count / (total_users or 1) * 100, 1),
             "feedback_count": fb.get("feedback_count", 0),
             "avg_rating": float(fb["avg_rating"]) if fb.get("avg_rating") is not None else None,
-            "top_tags": flatten_tags(fb.get("tag_arrays")),
+            "top_tags": tags_by_provider.get(p, []),
         })
 
     return results
@@ -418,6 +421,42 @@ async def admin_events(
             )
 
     return [dict(r) for r in rows]
+
+
+# ── Admin: per-event stats (site sections view) ────────────────────────────
+
+@router.get("/event-stats")
+async def admin_event_stats(_: UUID = Depends(require_admin)):
+    """Return per-event volume so the admin Sections view can show which parts
+    of the site are instrumented, used, or dark. `valid_events` lets the client
+    flag events it sends that the server would reject."""
+    async with get_conn() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                event,
+                COUNT(*)                                                       AS total,
+                COUNT(DISTINCT user_id)                                        AS users,
+                COUNT(*) FILTER (WHERE created_at >= now() - interval '7 days') AS last_7d,
+                MAX(created_at)                                                AS last_at
+            FROM session_events
+            GROUP BY event
+            ORDER BY event
+            """
+        )
+    return {
+        "events": [
+            {
+                "event": r["event"],
+                "total": r["total"],
+                "users": r["users"],
+                "last_7d": r["last_7d"],
+                "last_at": r["last_at"].isoformat() if r["last_at"] else None,
+            }
+            for r in rows
+        ],
+        "valid_events": sorted(VALID_EVENTS),
+    }
 
 
 # ── Admin: Spotify profiles (paginated) ─────────────────────────────────────

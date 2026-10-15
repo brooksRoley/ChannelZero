@@ -296,6 +296,23 @@ function stopAVSync() {
   avSyncActive.value = false
 }
 
+// ── Binaural layer spec ──
+// Single source of truth for the stereo pairs below. Exported so the admin
+// hypno audit can check the spec and measure the engine's real output.
+export interface BinauralLayerSpec {
+  id: 'alpha' | 'theta' | 'schumann'
+  label: string
+  leftHz: number
+  rightHz: number
+  targetBand: 'delta' | 'theta' | 'alpha' | 'beta' | 'gamma'
+}
+
+export const BINAURAL_LAYERS: Record<BinauralLayerSpec['id'], BinauralLayerSpec> = {
+  alpha:    { id: 'alpha',    label: 'Alpha Wave',         leftHz: 195,     rightHz: 205,     targetBand: 'alpha' },
+  theta:    { id: 'theta',    label: 'Theta Dream',        leftHz: 177,     rightHz: 183,     targetBand: 'theta' },
+  schumann: { id: 'schumann', label: 'Schumann Resonance', leftHz: 246.085, rightHz: 253.915, targetBand: 'theta' },
+}
+
 // ── Module 4: Alpha Wave (10 Hz binaural) ──
 // Left 195 Hz / Right 205 Hz → 10 Hz perceived beat (alpha band)
 // Alpha entrainment promotes relaxed alertness and flow state
@@ -304,8 +321,8 @@ async function startAlphaWave() {
   if (alphaL) return
   alphaPanL = new Tone.Panner(-1).toDestination()
   alphaPanR = new Tone.Panner(1).toDestination()
-  alphaL = new Tone.Oscillator(195, 'sine').connect(alphaPanL)
-  alphaR = new Tone.Oscillator(205, 'sine').connect(alphaPanR)
+  alphaL = new Tone.Oscillator(BINAURAL_LAYERS.alpha.leftHz, 'sine').connect(alphaPanL)
+  alphaR = new Tone.Oscillator(BINAURAL_LAYERS.alpha.rightHz, 'sine').connect(alphaPanR)
   alphaL.volume.value = phaseVol('alpha')
   alphaR.volume.value = phaseVol('alpha')
   alphaL.start()
@@ -329,8 +346,8 @@ async function startThetaDream() {
   if (thetaL) return
   thetaPanL = new Tone.Panner(-1).toDestination()
   thetaPanR = new Tone.Panner(1).toDestination()
-  thetaL = new Tone.Oscillator(177, 'sine').connect(thetaPanL)
-  thetaR = new Tone.Oscillator(183, 'sine').connect(thetaPanR)
+  thetaL = new Tone.Oscillator(BINAURAL_LAYERS.theta.leftHz, 'sine').connect(thetaPanL)
+  thetaR = new Tone.Oscillator(BINAURAL_LAYERS.theta.rightHz, 'sine').connect(thetaPanR)
   thetaL.volume.value = phaseVol('theta')
   thetaR.volume.value = phaseVol('theta')
   thetaL.start()
@@ -354,8 +371,8 @@ async function startSchumann() {
   if (schumannL) return
   schumannPanL = new Tone.Panner(-1).toDestination()
   schumannPanR = new Tone.Panner(1).toDestination()
-  schumannL = new Tone.Oscillator(246.085, 'sine').connect(schumannPanL)
-  schumannR = new Tone.Oscillator(253.915, 'sine').connect(schumannPanR)
+  schumannL = new Tone.Oscillator(BINAURAL_LAYERS.schumann.leftHz, 'sine').connect(schumannPanL)
+  schumannR = new Tone.Oscillator(BINAURAL_LAYERS.schumann.rightHz, 'sine').connect(schumannPanR)
   schumannL.volume.value = phaseVol('schumann')
   schumannR.volume.value = phaseVol('schumann')
   schumannL.start()

@@ -318,21 +318,55 @@ class TestAdminConnectors:
         assert spotify["connected_count"] == 50
         assert spotify["connection_rate_pct"] == 25.0
 
-    def test_tag_deduplication(self):
-        fb_rows = [
-            {
-                "provider": "spotify",
-                "feedback_count": 3,
-                "avg_rating": "4.50",
-                "tag_arrays": [["insightful", "accurate"], ["insightful"]],
-            }
+    def test_top_tags_from_unnested_rows(self):
+        fb_rows = [{"provider": "spotify", "feedback_count": 3, "avg_rating": "4.50"}]
+        tag_rows = [
+            {"provider": "spotify", "tag": "insightful", "n": 2},
+            {"provider": "spotify", "tag": "accurate", "n": 1},
         ]
         conn = FakeConn(
             fetchval_results=[10],
-            fetch_results=[[], fb_rows],
+            fetch_results=[[], fb_rows, tag_rows],
         )
         with patch("app.analytics.router.get_conn", make_get_conn(conn)):
             r = TestClient(_make_app(admin=True)).get("/api/analytics/connectors")
         spotify = next(item for item in r.json() if item["provider"] == "spotify")
-        assert "insightful" in spotify["top_tags"]
-        assert spotify["top_tags"].count("insightful") == 1
+        assert spotify["top_tags"] == ["insightful", "accurate"]
+        assert spotify["avg_rating"] == 4.5
+
+    def test_feedback_without_tags_has_empty_top_tags(self):
+        # Regression: array_agg over '{}' tag arrays raised "cannot accumulate
+        # empty arrays" in Postgres and took down the whole /admin page.
+        fb_rows = [{"provider": "spotify", "feedback_count": 1, "avg_rating": "3.00"}]
+        conn = FakeConn(fetchval_results=[1], fetch_results=[[], fb_rows, []])
+        with patch("app.analytics.router.get_conn", make_get_conn(conn)):
+            r = TestClient(_make_app(admin=True)).get("/api/analytics/connectors")
+        assert r.status_code == 200
+        spotify = next(item for item in r.json() if item["provider"] == "spotify")
+        assert spotify["top_tags"] == []
+        assert spotify["feedback_count"] == 1
+
+
+# ── Admin: Event stats ────────────────────────────────────────────────────────
+
+class TestAdminEventStats:
+    def test_returns_event_rows_and_valid_events(self):
+        rows = [{
+            "event": "zeromind_session_completed", "total": 5, "users": 2,
+            "last_7d": 1, "last_at": datetime(2026, 10, 15, tzinfo=timezone.utc),
+        }]
+        conn = FakeConn(fetch_results=[rows])
+        with patch("app.analytics.router.get_conn", make_get_conn(conn)):
+            r = TestClient(_make_app(admin=True)).get("/api/analytics/event-stats")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["events"][0]["event"] == "zeromind_session_completed"
+        assert data["events"][0]["users"] == 2
+        assert data["events"][0]["last_at"].startswith("2026-10-15")
+        assert "practice_started" in data["valid_events"]
+
+    def test_empty_db(self):
+        conn = FakeConn(fetch_results=[[]])
+        with patch("app.analytics.router.get_conn", make_get_conn(conn)):
+            r = TestClient(_make_app(admin=True)).get("/api/analytics/event-stats")
+        assert r.json()["events"] == []
