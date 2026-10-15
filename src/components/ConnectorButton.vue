@@ -8,7 +8,7 @@
     <button
       @click="handleClick"
       :disabled="connecting || connected"
-      class="relative flex items-center justify-between w-full bg-black border border-gray-800 text-gray-200 px-6 py-4 rounded-xl shadow-2xl transition-all overflow-hidden"
+      class="relative flex items-center justify-between w-full bg-black border border-gray-800 text-gray-200 px-6 py-4 rounded-xl shadow-2xl transition-all overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 focus-visible:border-white/40"
       :class="{
         'opacity-50 cursor-not-allowed': connecting,
         [connectedBorderClass]: connected,
