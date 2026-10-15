@@ -1,122 +1,42 @@
 """
-Co-Star credential-based data ingestion.
+Co-Star natal chart connector — manual entry.
 
-Co-Star has NO public API. Data ingestion uses a one-shot credential proxy:
-the user provides their Co-Star username + password, we authenticate against
-Co-Star's private API, extract their natal chart data, and immediately purge
-the credentials from memory. The password is never stored.
+Co-Star has no public API. An earlier version proxied the user's Co-Star
+password to an undocumented login endpoint; it never succeeded in production
+and was removed 2026-10-14. Users enter their placements directly instead.
 
 This powers the Oracle's "Fatalism Mirror" dimension.
-
-TODO: Co-Star may block automated login. If their private API changes,
-      this connector will need updating. Consider offering manual chart
-      entry as a fallback.
 """
 
 from __future__ import annotations
 
 import json
+from typing import Literal
 from uuid import UUID
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel
 
 from ..auth.deps import get_current_user_id
 from ..db import get_conn
+from ..oauth_base import store_provider_data
 from ..llm.chat import chat_completion
 
 router = APIRouter()
 
-# Co-Star's undocumented API base (may change without notice)
-_COSTAR_API_BASE = "https://api.costarastrology.com"
-
-
-class CoStarIngestRequest(BaseModel):
-    costar_username: str
-    costar_password: SecretStr
+Sign = Literal[
+    "Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+    "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces",
+]
 
 
 class CoStarManualRequest(BaseModel):
-    """Manual chart entry fallback when credential proxy fails."""
-    sun_sign: str
-    moon_sign: str
-    rising_sign: str
-    venus_sign: str = ""
-    mars_sign: str = ""
-
-
-@router.post("/ingest")
-async def costar_ingest(
-    req: CoStarIngestRequest,
-    user_id: UUID = Depends(get_current_user_id),
-):
-    """
-    Authenticate with Co-Star, extract natal chart, store, purge credentials.
-
-    If the Co-Star API blocks us or changes, falls back to returning an
-    error suggesting manual entry via /costar/manual.
-    """
-    chart_data = None
-
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            # Attempt Co-Star login
-            login_resp = await client.post(
-                f"{_COSTAR_API_BASE}/auth/login",
-                json={
-                    "email": req.costar_username,
-                    "password": req.costar_password.get_secret_value(),
-                },
-            )
-
-            if login_resp.status_code == 200:
-                auth_data = login_resp.json()
-                token = auth_data.get("token") or auth_data.get("access_token", "")
-
-                if token:
-                    # Fetch natal chart
-                    chart_resp = await client.get(
-                        f"{_COSTAR_API_BASE}/user/chart",
-                        headers={"Authorization": f"Bearer {token}"},
-                    )
-                    if chart_resp.status_code == 200:
-                        chart_data = chart_resp.json()
-            else:
-                # Login failed — could be wrong credentials or API change
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Co-Star login failed. Check credentials or use manual chart entry at /api/costar/manual.",
-                )
-
-    except httpx.HTTPError:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not reach Co-Star. Use manual chart entry at /api/costar/manual instead.",
-        )
-
-    # Credentials purged — req goes out of scope here and is never stored.
-    # Even if chart_data fetch failed, we still return something useful.
-
-    if not chart_data:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Co-Star chart extraction failed. Use /api/costar/manual for manual entry.",
-        )
-
-    costar_profile = _distill_chart(chart_data)
-
-    async with get_conn() as conn:
-        await conn.execute(
-            """
-            UPDATE vibe_vectors
-            SET costar_data = $2, updated_at = now()
-            WHERE user_id = $1
-            """,
-            user_id, json.dumps(costar_profile),
-        )
-
-    return {"status": "connected", "chart": costar_profile}
+    """Natal placements entered by the user (Venus and Mars optional)."""
+    sun_sign: Sign
+    moon_sign: Sign
+    rising_sign: Sign
+    venus_sign: Sign | Literal[""] = ""
+    mars_sign: Sign | Literal[""] = ""
 
 
 @router.post("/manual")
@@ -137,49 +57,11 @@ async def costar_manual(
         "mars": req.mars_sign or None,
     }
 
-    async with get_conn() as conn:
-        await conn.execute(
-            """
-            UPDATE vibe_vectors
-            SET costar_data = $2, updated_at = now()
-            WHERE user_id = $1
-            """,
-            user_id, json.dumps(costar_profile),
-        )
+    # Upsert: most users have no vibe_vectors row yet (intake is optional), and a
+    # plain UPDATE would silently drop the chart for them.
+    await store_provider_data(str(user_id), "costar_data", costar_profile)
 
     return {"status": "connected", "chart": costar_profile}
-
-
-# ── Profile distillation ─────────────────────────────────────────────────────
-
-def _distill_chart(raw: dict) -> dict:
-    """Extract the key astrological placements from raw Co-Star chart data."""
-    # Co-Star's internal format varies, but generally contains placements
-    placements = raw.get("placements", raw.get("chart", {}))
-
-    if isinstance(placements, list):
-        chart = {}
-        for p in placements:
-            planet = p.get("planet", p.get("name", "")).lower()
-            sign = p.get("sign", "")
-            if planet and sign:
-                chart[planet] = sign
-    elif isinstance(placements, dict):
-        chart = placements
-    else:
-        chart = raw
-
-    return {
-        "source": "costar_api",
-        "sun": chart.get("sun", ""),
-        "moon": chart.get("moon", ""),
-        "rising": chart.get("ascendant", chart.get("rising", "")),
-        "venus": chart.get("venus", ""),
-        "mars": chart.get("mars", ""),
-        "mercury": chart.get("mercury", ""),
-        "jupiter": chart.get("jupiter", ""),
-        "saturn": chart.get("saturn", ""),
-    }
 
 
 @router.get("/analyze")

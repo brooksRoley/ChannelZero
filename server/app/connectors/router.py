@@ -52,7 +52,7 @@ _PROVIDER_REQS: list[tuple[str, list[str]]] = [
     ("tiktok",     ["tiktok_client_key", "tiktok_client_secret"]),
     ("letterboxd", ["letterboxd_api_key", "letterboxd_api_secret"]),
     ("steam",      ["steam_api_key"]),
-    ("costar",     []),  # credential-based, no env-side OAuth client
+    ("costar",     []),  # manual chart entry, no env-side OAuth client
 ]
 
 
