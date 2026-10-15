@@ -16,8 +16,9 @@ embedded psychoanalysis layer. The product is, in priority order:
 3. **Routine / ritual building** — daily loops the user returns to.
 4. **Embedded gaming** — small introspective games/rituals (no swipe/match mechanics).
 5. **Psychoanalysis insights from OAuth connections** — per-connector LLM narratives over the
-   user's OWN data (Spotify→sonic psyche, GitHub→maker's mind, etc.). Runs on **user-supplied
-   LLM keys**, needs **no embeddings and no Pinecone**.
+   user's OWN data (Spotify→sonic psyche, GitHub→maker's mind, etc.). Runs on **server-side LLM
+   (OpenRouter free tier — no user key needed)**; needs **no embeddings and no Pinecone**.
+   LLMKeyManager.vue is intentionally orphaned; do not revive BYOK flows.
 
 **Shelved / aspirational — do NOT build on these without an explicit ask:**
 - The Pinecone **vibe-vector matching network** (ANN "three shadows", mutual-match swiping,

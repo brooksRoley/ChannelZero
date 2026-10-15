@@ -111,7 +111,7 @@ async def generate_narrative(request: Request, user_id: UUID = Depends(get_curre
     async with pool.acquire() as conn:
         await conn.execute("UPDATE user_psychometrics SET narrative = $1 WHERE user_id = $2", narrative, str(user_id))
         
-    return {"status": "success", "narrative": narrative}
+    return {"narrative": narrative}
 
 @router.delete("/profile")
 async def delete_my_profile(user_id: UUID = Depends(get_current_user_id)):

@@ -153,11 +153,30 @@ class TestChatCompletion:
                 assert result == "Test response"
 
     @pytest.mark.asyncio
-    async def test_upstream_error_raises_502(self):
+    async def test_upstream_rate_limit_raises_429(self):
         settings = self._make_settings()
         mock_response = MagicMock()
         mock_response.status_code = 429
         mock_response.text = '{"error": "rate limited"}'
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        with patch("app.llm.chat.get_settings", return_value=settings):
+            with patch("httpx.AsyncClient", return_value=mock_client):
+                with pytest.raises(HTTPException) as exc_info:
+                    await chat_completion("Hello")
+                assert exc_info.value.status_code == 429
+                assert "rate-limited" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_upstream_error_raises_502(self):
+        settings = self._make_settings()
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = '{"error": "internal server error"}'
 
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
