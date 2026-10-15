@@ -150,7 +150,10 @@ async def spotify_connect(ct: str = Query(..., description="Short-lived connect 
         state=make_oauth_state(payload["sub"]),
         extra_params={"show_dialog": "false"},
     )
-    return RedirectResponse(url)
+    resp = RedirectResponse(url)
+    # Prevent the ?ct= token from leaking to Spotify via the Referer header.
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    return resp
 
 
 @router.get("/callback")

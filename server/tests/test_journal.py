@@ -236,7 +236,27 @@ class TestSyncEntries:
                 json={"entries": [{"text": "Synced thought.", "mood": "open"}]},
             )
         assert resp.status_code == 200
-        assert conn.execute_calls  # upsert ran for the one client entry
+        # executemany fires once with one arg-tuple for the single entry
+        assert conn.executemany_calls, "expected executemany to be called"
+        args_rows = conn.executemany_calls[0][1]
+        assert len(args_rows) == 1
+        assert args_rows[0][2] == "Synced thought."  # text is 3rd param (after id, user_id)
+
+    def test_sync_with_client_supplied_id_enables_idempotent_upsert(self):
+        """When the client sends a server-assigned id, ON CONFLICT (id) fires correctly."""
+        existing_id = str(ENTRY_ID)
+        conn = FakeConn(fetch_results=[[_entry_row()]])
+        with (
+            patch("app.journal.router.get_tx", make_get_conn(conn)),
+            patch("app.journal.router.embed_and_upsert_journal", new=AsyncMock()),
+        ):
+            resp = TestClient(_make_app()).post(
+                "/api/journal/sync",
+                json={"entries": [{"id": existing_id, "text": "Re-synced.", "mood": "centered"}]},
+            )
+        assert resp.status_code == 200
+        args_rows = conn.executemany_calls[0][1]
+        assert str(args_rows[0][0]) == existing_id  # id forwarded to DB
 
     def test_sync_with_last_sync_timestamp(self):
         conn = FakeConn(fetch_results=[[_entry_row()]])
