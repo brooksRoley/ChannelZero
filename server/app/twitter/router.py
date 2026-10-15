@@ -7,7 +7,7 @@ requests tweet.read + like.read + follows.read scopes, stores the token,
 and fetches behavioral data for the Oracle's "Neurotic Output" dimension.
 
 Flow:
-  1. GET /twitter/connect?token=<JWT>  → return auth URL (PKCE, client-side redirect)
+  1. GET /twitter/connect  → Authorization: Bearer <JWT> header → return auth URL (PKCE, client-side redirect)
   2. GET /twitter/callback?code=&state= → exchange code, fetch data, store
 
 NOTE: tweet.read beyond basic user.read requires X API Basic tier ($100/mo).
