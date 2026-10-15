@@ -5,6 +5,8 @@ import { useStoryStore } from '@/composables/useStoryStore'
 import { useTranceEngine } from '@/composables/useTranceEngine'
 import { useAuthStore } from '@/composables/useAuthStore'
 import { usePollStore } from '@/composables/usePollStore'
+import NavBarTextModal from './NavBarTextModal.vue'
+import NavBarBgModal from './NavBarBgModal.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -13,14 +15,9 @@ const {
   words,
   currentIndex,
   isPlaying,
-  setStoryText,
   play,
   pause,
   reset,
-  backgroundMedia,
-  isBackgroundVideo,
-  setBackgroundMedia,
-  clearBackgroundMedia
 } = useStoryStore()
 
 const {
@@ -223,12 +220,8 @@ watch(menuOpen, (val) => {
   }
 })
 
-// Text edit modal state
+// Modal visibility
 const showTextModal = ref(false)
-const textInputValue = ref('')
-const fileName = ref('')
-
-// Background modal state
 const showBgModal = ref(false)
 
 // Primary nav links
@@ -248,39 +241,8 @@ function togglePlayback() {
 }
 
 function openTextModal() {
-  textInputValue.value = storyText.value
-  fileName.value = ''
   showTextModal.value = true
   menuOpen.value = false
-}
-
-function handleFileUpload(event: Event) {
-  const target = event.target as HTMLInputElement
-  const file = target.files?.[0]
-  if (!file) return
-
-  fileName.value = file.name
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    textInputValue.value = e.target?.result as string
-  }
-  reader.readAsText(file)
-}
-
-function handleBgUpload(event: Event) {
-  const target = event.target as HTMLInputElement
-  const file = target.files?.[0]
-  if (!file) return
-  const url = URL.createObjectURL(file)
-  setBackgroundMedia(url, file.type.startsWith('video/'))
-  showBgModal.value = false
-}
-
-function loadText() {
-  if (!textInputValue.value.trim()) return
-  setStoryText(textInputValue.value)
-  showTextModal.value = false
-  play()
 }
 
 function openBgModal() {
@@ -510,80 +472,8 @@ onUnmounted(() => {
     ></div>
   </Teleport>
 
-  <!-- Text edit modal -->
-  <Teleport to="body">
-    <div v-if="showTextModal" class="modal-overlay" @click.self="showTextModal = false">
-      <div class="modal">
-        <h2>Enter Text</h2>
-
-        <label class="modal-file-upload">
-          <input type="file" accept=".txt,.md" @change="handleFileUpload" />
-          <span class="modal-upload-btn">Choose File</span>
-          <span v-if="fileName" class="modal-file-name">{{ fileName }}</span>
-        </label>
-
-        <div class="modal-divider">or</div>
-
-        <textarea
-          v-model="textInputValue"
-          placeholder="Paste your text here..."
-          class="modal-textarea"
-          rows="10"
-        ></textarea>
-
-        <div class="modal-actions">
-          <button
-            class="modal-btn modal-btn--primary"
-            :disabled="!textInputValue.trim()"
-            @click="loadText"
-          >
-            Start Reading
-          </button>
-          <button class="modal-btn" @click="showTextModal = false">Close</button>
-        </div>
-      </div>
-    </div>
-  </Teleport>
-
-  <!-- Background upload modal -->
-  <Teleport to="body">
-    <div v-if="showBgModal" class="modal-overlay" @click.self="showBgModal = false">
-      <div class="modal">
-        <h2>Set Background</h2>
-
-        <div v-if="backgroundMedia" class="bg-preview">
-          <video
-            v-if="isBackgroundVideo"
-            :src="backgroundMedia"
-            autoplay
-            loop
-            muted
-            playsinline
-            class="bg-preview-media"
-          ></video>
-          <img v-else :src="backgroundMedia" class="bg-preview-media" alt="background preview" />
-        </div>
-
-        <label class="modal-file-upload">
-          <input type="file" accept="image/gif,video/mp4,video/webm" @change="handleBgUpload" />
-          <span class="modal-upload-btn">{{
-            backgroundMedia ? 'Change File' : 'Choose File'
-          }}</span>
-        </label>
-
-        <div class="modal-actions">
-          <button
-            v-if="backgroundMedia"
-            class="modal-btn modal-btn--danger"
-            @click="clearBackgroundMedia(), (showBgModal = false)"
-          >
-            Clear Background
-          </button>
-          <button class="modal-btn" @click="showBgModal = false">Close</button>
-        </div>
-      </div>
-    </div>
-  </Teleport>
+  <NavBarTextModal v-model="showTextModal" />
+  <NavBarBgModal v-model="showBgModal" />
 </template>
 
 <style scoped>
@@ -1205,148 +1095,6 @@ onUnmounted(() => {
   }
 }
 
-/* ── Modals (shared) ── */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  z-index: 2000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(4px);
-}
-
-.modal {
-  background: rgba(20, 20, 40, 0.95);
-  padding: 2rem;
-  border-radius: 1rem;
-  border: 1px solid rgba(100, 100, 255, 0.3);
-  max-width: 600px;
-  width: 90%;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.modal h2 {
-  color: #e2e8f0;
-  font-size: 1.25rem;
-  margin: 0;
-}
-
-.modal-file-upload {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  cursor: pointer;
-}
-
-.modal-file-upload input {
-  display: none;
-}
-
-.modal-upload-btn {
-  background-color: #374151;
-  color: #e2e8f0;
-  padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-  font-size: 0.875rem;
-  transition: background-color 0.2s;
-}
-
-.modal-upload-btn:hover {
-  background-color: #4b5563;
-}
-
-.modal-file-name {
-  color: #94a3b8;
-  font-size: 0.875rem;
-}
-
-.modal-divider {
-  color: #64748b;
-  font-size: 0.875rem;
-  text-align: center;
-}
-
-.modal-textarea {
-  width: 100%;
-  padding: 1rem;
-  background: rgba(30, 30, 50, 0.9);
-  border: 1px solid rgba(100, 100, 255, 0.3);
-  color: #e2e8f0;
-  border-radius: 0.5rem;
-  font-family: inherit;
-  font-size: 1rem;
-  resize: vertical;
-}
-
-.modal-textarea::placeholder {
-  color: #64748b;
-}
-
-.modal-textarea:focus {
-  border-color: #6366f1;
-}
-.modal-textarea:focus:not(:focus-visible) {
-  outline: none;
-}
-
-.modal-actions {
-  display: flex;
-  gap: 0.75rem;
-}
-
-.modal-btn {
-  background: #374151;
-  border: none;
-  color: #e2e8f0;
-  padding: 0.75rem 1.5rem;
-  border-radius: 0.5rem;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 0.9rem;
-  transition: background-color 0.2s;
-}
-
-.modal-btn:hover {
-  background: #4b5563;
-}
-
-.modal-btn--primary {
-  background: #6366f1;
-}
-
-.modal-btn--primary:hover:not(:disabled) {
-  background: #4f46e5;
-}
-
-.modal-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.modal-btn--danger {
-  background: #991b1b;
-  color: #fecaca;
-}
-
-.modal-btn--danger:hover {
-  background: #b91c1c;
-}
-
-.bg-preview {
-  border-radius: 0.5rem;
-  overflow: hidden;
-  max-height: 200px;
-}
-
-.bg-preview-media {
-  width: 100%;
-  max-height: 200px;
-  object-fit: contain;
-}
 </style>
 
 <style>
