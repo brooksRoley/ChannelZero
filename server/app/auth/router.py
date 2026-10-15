@@ -118,11 +118,6 @@ async def issue_connect_token(request: Request, user_id: UUID = Depends(get_curr
             "INSERT INTO connect_tokens (token, user_id, expires_at) VALUES ($1, $2, $3)",
             ct, user_id, expires_at,
         )
-        # Lazily prune expired tokens to keep the table bounded — connect tokens
-        # are 60s TTL so anything 1h old is long-dead garbage.
-        await conn.execute(
-            "DELETE FROM connect_tokens WHERE expires_at < now() - INTERVAL '1 hour'"
-        )
     return {"ct": ct}
 
 

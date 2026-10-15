@@ -19,8 +19,8 @@ function handleBgUpload(event: Event) {
 <template>
   <Teleport to="body">
     <div v-if="modelValue" class="modal-overlay" @click.self="emit('update:modelValue', false)">
-      <div class="modal">
-        <h2>Set Background</h2>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="bg-modal-title">
+        <h2 id="bg-modal-title">Set Background</h2>
 
         <div v-if="backgroundMedia" class="bg-preview">
           <video

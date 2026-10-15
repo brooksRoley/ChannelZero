@@ -164,7 +164,8 @@ async def sync_entries(
                 drawings = EXCLUDED.drawings,
                 mood = EXCLUDED.mood,
                 updated_at = now()
-            WHERE journal_entries.updated_at < EXCLUDED.updated_at
+            WHERE journal_entries.user_id = EXCLUDED.user_id
+              AND journal_entries.updated_at < EXCLUDED.updated_at
         """
         await conn.executemany(
             _UPSERT_SQL,

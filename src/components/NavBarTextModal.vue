@@ -38,8 +38,8 @@ function loadText() {
 <template>
   <Teleport to="body">
     <div v-if="modelValue" class="modal-overlay" @click.self="emit('update:modelValue', false)">
-      <div class="modal">
-        <h2>Enter Text</h2>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="text-modal-title">
+        <h2 id="text-modal-title">Enter Text</h2>
 
         <label class="modal-file-upload">
           <input type="file" accept=".txt,.md" @change="handleFileUpload" />
@@ -54,6 +54,7 @@ function loadText() {
           placeholder="Paste your text here..."
           class="modal-textarea"
           rows="10"
+          autofocus
         ></textarea>
 
         <div class="modal-actions">

@@ -669,6 +669,13 @@ onUnmounted(() => {
   border-color: rgba(255, 255, 255, 0.25);
 }
 
+.menu-btn:focus-visible,
+.auth-btn:focus-visible,
+.fullscreen-btn:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
 /* ── Auth button ── */
 .auth-btn {
   flex-shrink: 0;
@@ -1027,6 +1034,7 @@ onUnmounted(() => {
   left: 50%;
   transform: translateX(-50%);
   width: 220px;
+  max-width: min(220px, calc(100vw - 2rem));
   background: rgba(10, 8, 20, 0.97);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 0.55rem;
