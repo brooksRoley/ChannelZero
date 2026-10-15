@@ -5,6 +5,7 @@ import { useStoryStore } from '@/composables/useStoryStore'
 import { useTranceEngine } from '@/composables/useTranceEngine'
 import { useAnalytics } from '@/composables/useAnalytics'
 import PostTranceOverlay from '@/components/PostTranceOverlay.vue'
+import { usePracticeLog } from '@/composables/usePracticeLog'
 
 const { currentWord } = useStoryStore()
 const { logEvent } = useAnalytics()
@@ -18,11 +19,13 @@ const {
   clearCompletedSession,
 } = useTranceEngine()
 
+const { logPractice } = usePracticeLog()
 const showOverlay = ref(false)
 
 watch(completedSession, (data) => {
   if (data) {
     showOverlay.value = true
+    logPractice('zeromind', data.sessionDurationMs)
     logEvent('zeromind_session_completed', {
       coherence: data.coherence,
       sync_count: data.syncCount,

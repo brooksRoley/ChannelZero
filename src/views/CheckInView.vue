@@ -6,6 +6,12 @@ import type { JournalSynthesis } from '@/composables/useJournalStore'
 import { usePollStore } from '@/composables/usePollStore'
 import { useTTS } from '@/composables/useTTS'
 import { useAnalytics } from '@/composables/useAnalytics'
+import {
+  usePracticeLog,
+  recommendPractice,
+  PRACTICE_LABELS,
+  type PracticeSession,
+} from '@/composables/usePracticeLog'
 
 const router = useRouter()
 const {
@@ -19,6 +25,7 @@ const {
 const { token } = usePollStore()
 const { speak, stop, isSpeaking, toggle, progress: ttsProgress } = useTTS()
 const { logEvent } = useAnalytics()
+const { todayPractice } = usePracticeLog()
 
 // ── Funnel instrumentation ─────────────────────────────────────────
 let completedFired = false
@@ -117,6 +124,39 @@ const practiceLabel = computed(() => {
   return "Tonight's Practice"
 })
 
+// ── Recommended session + today's practice ────────────────────────
+
+const PRACTICE_OPTIONS: { session: PracticeSession; icon: string; desc: string }[] = [
+  { session: 'zeromind', icon: '\u25CE', desc: 'Binaural entrainment' },
+  { session: 'audio', icon: '\u266B', desc: 'Adaptive trance audio' },
+  { session: 'spiral', icon: '\u26AC', desc: 'Visual hypnosis' },
+]
+
+// Latest mood tagged today; 'intentional' marks saved intentions, not a feeling.
+const latestMood = computed(() =>
+  todayEntries.value
+    .filter((e) => e.mood && e.mood !== 'intentional')
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.mood ?? null
+)
+
+const recommendation = computed(() => recommendPractice(new Date().getHours(), latestMood.value))
+
+const practicedSummary = computed(() => {
+  if (todayPractice.value.length === 0) return ''
+  const mins = Math.round(todayPractice.value.reduce((n, r) => n + r.durationMs, 0) / 60000)
+  const names = [...new Set(todayPractice.value.map((r) => PRACTICE_LABELS[r.session]))]
+  return `Practiced today: ${names.join(' · ')} — ${mins} min`
+})
+
+function startPractice(session: PracticeSession) {
+  logEvent('practice_started', {
+    session,
+    recommended: session === recommendation.value.session,
+    mood: latestMood.value,
+  })
+  router.push(`/${session}`)
+}
+
 // ── Actions ────────────────────────────────────────────────────────
 
 function runSynthesis() {
@@ -156,6 +196,7 @@ function openEntry(id: string) {
 onMounted(() => {
   greeting.value = buildGreeting()
   logEvent('checkin_started')
+  if (todayPractice.value.length > 0) markCheckinComplete('practice')
   if (todayEntries.value.length > 0) {
     synthesis.value = synthesizeToday()
   }
@@ -309,21 +350,21 @@ const accent = computed(() => token.value?.palette?.accent || '#a78bfa')
       <!-- Today's Practice -->
       <section class="section practice-section">
         <h2 class="section-heading">{{ practiceLabel }}</h2>
+        <p v-if="practicedSummary" class="practice-done">{{ practicedSummary }}</p>
+        <p class="practice-reason">{{ recommendation.reason }}</p>
         <div class="practice-grid">
-          <button class="practice-btn" @click="router.push('/zeromind')">
-            <span class="practice-icon" aria-hidden="true">&#9678;</span>
-            <span class="practice-label">Zeromind</span>
-            <span class="practice-desc">Binaural entrainment</span>
-          </button>
-          <button class="practice-btn" @click="router.push('/audio')">
-            <span class="practice-icon" aria-hidden="true">&#9835;</span>
-            <span class="practice-label">Audio Journey</span>
-            <span class="practice-desc">Adaptive trance audio</span>
-          </button>
-          <button class="practice-btn" @click="router.push('/spiral')">
-            <span class="practice-icon" aria-hidden="true">&#9900;</span>
-            <span class="practice-label">Spiral</span>
-            <span class="practice-desc">Visual hypnosis</span>
+          <button
+            v-for="opt in PRACTICE_OPTIONS"
+            :key="opt.session"
+            class="practice-btn"
+            :class="{ 'practice-btn--recommended': opt.session === recommendation.session }"
+            @click="startPractice(opt.session)"
+          >
+            <span class="practice-icon" aria-hidden="true">{{ opt.icon }}</span>
+            <span class="practice-label">{{ PRACTICE_LABELS[opt.session] }}</span>
+            <span class="practice-desc">
+              {{ opt.session === recommendation.session ? 'Recommended now' : opt.desc }}
+            </span>
           </button>
         </div>
       </section>
@@ -729,6 +770,24 @@ const accent = computed(() => token.value?.palette?.accent || '#a78bfa')
 .practice-btn:focus-visible {
   outline: 2px solid rgba(167, 139, 250, 0.7);
   outline-offset: 2px;
+}
+
+.practice-btn--recommended {
+  background: rgba(167, 139, 250, 0.1);
+  border-color: rgba(167, 139, 250, 0.45);
+  color: #ede9fe;
+}
+
+.practice-done {
+  margin: 0 0 0.4rem;
+  font-size: 0.75rem;
+  color: #a7f3d0;
+}
+
+.practice-reason {
+  margin: 0 0 0.75rem;
+  font-size: 0.78rem;
+  color: #94a3b8;
 }
 
 .practice-icon {

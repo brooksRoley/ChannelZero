@@ -5,6 +5,7 @@ import { useTextOverlay } from '@/composables/useTextOverlay'
 import { categories } from '@/composables/useTranceCategories'
 import { useTranceEngine } from '@/composables/useTranceEngine'
 import PostTranceOverlay from '@/components/PostTranceOverlay.vue'
+import { usePracticeLog } from '@/composables/usePracticeLog'
 
 const canvasRef = ref<HTMLCanvasElement>()
 const {
@@ -19,10 +20,13 @@ const {
 } = useTextOverlay()
 
 const { completedSession, clearCompletedSession } = useTranceEngine()
+const { logPractice } = usePracticeLog()
 const showOverlay = ref(false)
 
 watch(completedSession, (data) => {
-  if (data) showOverlay.value = true
+  if (!data) return
+  showOverlay.value = true
+  logPractice('spiral', data.sessionDurationMs)
 })
 
 function handleOverlayClose() {
