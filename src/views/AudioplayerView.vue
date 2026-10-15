@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import {
   useAdaptiveEntrain, PHASE_LABELS,
   type EntrainPhase,
 } from '@/composables/useAdaptiveEntrain'
 import { useTextOverlay } from '@/composables/useTextOverlay'
 import { useAudioMixer } from '@/composables/useAudioMixer'
+import { usePracticeLog } from '@/composables/usePracticeLog'
 
 // ── Composables ──
 const {
@@ -21,6 +22,17 @@ const {
 } = useTextOverlay()
 
 const { tracks, toggleTrack, setVolume: setTrackVolume } = useAudioMixer()
+const { logPractice } = usePracticeLog()
+
+// Record a finished journey in the local practice log (read by check-in).
+let journeyStartedAt = 0
+watch(active, (on) => { if (on) journeyStartedAt = Date.now() })
+watch(phase, (p) => {
+  if (p === 'complete' && journeyStartedAt) {
+    logPractice('audio', Date.now() - journeyStartedAt)
+    journeyStartedAt = 0
+  }
+})
 
 // ── UI state ──
 const canvasRef = ref<HTMLCanvasElement>()
