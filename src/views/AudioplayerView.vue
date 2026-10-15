@@ -313,14 +313,20 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="entrain" @click="handleTap">
-    <canvas ref="canvasRef" class="entrain-canvas" />
+  <div
+    class="entrain"
+    :tabindex="phase !== 'complete' ? 0 : -1"
+    @click="handleTap"
+    @keydown.space.prevent="handleTap"
+    @keydown.enter.prevent="handleTap"
+  >
+    <canvas ref="canvasRef" class="entrain-canvas" aria-hidden="true" />
 
     <!-- Gate overlay -->
     <Transition name="gate">
       <div v-if="showGate" class="gate-overlay">
         <h1 class="gate-title">adaptive entrainment</h1>
-        <p class="gate-sub">tap to begin</p>
+        <p class="gate-sub">tap or press space to begin</p>
         <p class="gate-hint">stereo headphones required for binaural effect</p>
       </div>
     </Transition>
@@ -344,8 +350,11 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- Screen reader phase status -->
+    <div v-if="active" class="sr-only" role="status" aria-live="polite">{{ phaseLabel }}</div>
+
     <!-- Phase journey bar -->
-    <div v-if="active && phase !== 'complete'" class="journey-bar">
+    <div v-if="active && phase !== 'complete'" class="journey-bar" aria-hidden="true">
       <div
         v-for="(p, i) in phases"
         :key="p.name"
@@ -394,13 +403,19 @@ onUnmounted(() => {
       <div v-if="showMixer" class="mixer-panel" @click.stop>
         <div class="mixer-header">background</div>
         <div v-for="track in tracks" :key="track.id" class="mini-track">
-          <button class="mini-play" :class="{ on: track.playing }" @click="toggleTrack(track.id)">
-            {{ track.playing ? '\u23F8' : '\u25B6' }}
+          <button
+            class="mini-play"
+            :class="{ on: track.playing }"
+            :aria-label="`${track.playing ? 'Pause' : 'Play'} ${track.name}`"
+            @click="toggleTrack(track.id)"
+          >
+            <span aria-hidden="true">{{ track.playing ? '\u23F8' : '\u25B6' }}</span>
           </button>
           <span class="mini-name">{{ track.name }}</span>
           <input
             type="range" class="mini-vol" min="0" max="1" step="0.01"
             :value="track.volume"
+            :aria-label="`${track.name} volume`"
             @input="setTrackVolume(track.id, parseFloat(($event.target as HTMLInputElement).value))"
           />
         </div>
@@ -411,7 +426,15 @@ onUnmounted(() => {
     </Transition>
 
     <!-- Reader progress -->
-    <div v-if="isReaderMode && active" class="progress-track">
+    <div
+      v-if="isReaderMode && active"
+      class="progress-track"
+      role="progressbar"
+      :aria-valuenow="Math.round(readerProgress)"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      aria-label="Reader progress"
+    >
       <div class="progress-fill" :style="{ width: `${readerProgress}%` }" />
     </div>
   </div>
@@ -871,5 +894,17 @@ onUnmounted(() => {
   height: 100%;
   background: rgba(99, 102, 241, 0.5);
   transition: width 0.15s linear;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 </style>
