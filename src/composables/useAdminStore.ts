@@ -1,4 +1,4 @@
-import { ref, readonly } from 'vue'
+import { ref, reactive, readonly } from 'vue'
 import { useAuthStore } from './useAuthStore'
 
 // ── Types ──────────────────────────────────────────────────────────────────────────────
@@ -92,6 +92,19 @@ export interface ConnectorDepthBucket {
   count: number
 }
 
+export interface EventStat {
+  event: string
+  total: number
+  users: number
+  last_7d: number
+  last_at: string | null
+}
+
+/** Each admin panel loads and fails independently, so one broken query can't blank the page. */
+export type AdminPanel =
+  | 'users' | 'funnel' | 'connectors' | 'spotify' | 'psychometrics'
+  | 'archetypes' | 'attachment' | 'depth' | 'events'
+
 // ── State ────────────────────────────────────────────────────────────────────────────
 
 const users = ref<AdminUser[]>([])
@@ -110,99 +123,108 @@ const archetypesTotal = ref(0)
 const attachmentStyles = ref<AttachmentCount[]>([])
 const attachmentTotal = ref(0)
 const connectorDepth = ref<ConnectorDepthBucket[]>([])
+const eventStats = ref<EventStat[]>([])
+const validEvents = ref<string[]>([])
 const loading = ref(false)
-const error = ref<string | null>(null)
+const errors = reactive<Partial<Record<AdminPanel, string>>>({})
+
+/** Run one panel's fetch, recording (or clearing) that panel's error. */
+async function track(panel: AdminPanel, fn: () => Promise<void>) {
+  delete errors[panel]
+  try {
+    await fn()
+  } catch (e: any) {
+    errors[panel] = e?.message || 'Request failed'
+  }
+}
 
 // ── Actions ──────────────────────────────────────────────────────────────────────────
 
 async function fetchUsers(page = 1, perPage = 50) {
   const { apiFetch } = useAuthStore()
   loading.value = true
-  error.value = null
-  try {
+  await track('users', async () => {
     const data = await apiFetch<UsersPage>(
       `/api/analytics/users?page=${page}&per_page=${perPage}`
     )
     users.value = data.users
     usersTotal.value = data.total
     usersPage.value = data.page
-  } catch (e: any) {
-    error.value = e.message
-  } finally {
-    loading.value = false
-  }
+  })
+  loading.value = false
 }
 
 async function fetchFunnel() {
   const { apiFetch } = useAuthStore()
-  try {
+  await track('funnel', async () => {
     funnel.value = await apiFetch<FunnelStep[]>('/api/analytics/funnel')
-  } catch (e: any) {
-    error.value = e.message
-  }
+  })
 }
 
 async function fetchConnectors() {
   const { apiFetch } = useAuthStore()
-  try {
+  await track('connectors', async () => {
     connectors.value = await apiFetch<ConnectorStat[]>('/api/analytics/connectors')
-  } catch (e: any) {
-    error.value = e.message
-  }
+  })
 }
 
 async function fetchSpotifyProfiles(page = 1, perPage = 50) {
   const { apiFetch } = useAuthStore()
-  try {
+  await track('spotify', async () => {
     const data = await apiFetch<{ total: number; page: number; profiles: SpotifyProfile[] }>(
       `/api/analytics/spotify-profiles?page=${page}&per_page=${perPage}`
     )
     spotifyProfiles.value = data.profiles
     spotifyTotal.value = data.total
     spotifyPage.value = data.page
-  } catch (e: any) {
-    error.value = e.message
-  }
+  })
 }
 
 async function fetchPsychProfiles(page = 1, perPage = 50) {
   const { apiFetch } = useAuthStore()
-  try {
+  await track('psychometrics', async () => {
     const data = await apiFetch<{ total: number; page: number; profiles: PsychometricProfile[] }>(
       `/api/analytics/psychometrics?page=${page}&per_page=${perPage}`
     )
     psychProfiles.value = data.profiles
     psychTotal.value = data.total
     psychPage.value = data.page
-  } catch (e: any) {
-    error.value = e.message
-  }
+  })
 }
 
 async function fetchArchetypes() {
   const { apiFetch } = useAuthStore()
-  try {
+  await track('archetypes', async () => {
     const data = await apiFetch<{ total: number; archetypes: ArchetypeCount[] }>('/api/analytics/archetypes')
     archetypes.value = data.archetypes
     archetypesTotal.value = data.total
-  } catch (e: any) { error.value = e.message }
+  })
 }
 
 async function fetchAttachmentStyles() {
   const { apiFetch } = useAuthStore()
-  try {
+  await track('attachment', async () => {
     const data = await apiFetch<{ total: number; styles: AttachmentCount[] }>('/api/analytics/attachment-styles')
     attachmentStyles.value = data.styles
     attachmentTotal.value = data.total
-  } catch (e: any) { error.value = e.message }
+  })
 }
 
 async function fetchConnectorDepth() {
   const { apiFetch } = useAuthStore()
-  try {
+  await track('depth', async () => {
     const data = await apiFetch<{ histogram: ConnectorDepthBucket[] }>('/api/analytics/connector-depth')
     connectorDepth.value = data.histogram
-  } catch (e: any) { error.value = e.message }
+  })
+}
+
+async function fetchEventStats() {
+  const { apiFetch } = useAuthStore()
+  await track('events', async () => {
+    const data = await apiFetch<{ events: EventStat[]; valid_events: string[] }>('/api/analytics/event-stats')
+    eventStats.value = data.events
+    validEvents.value = data.valid_events
+  })
 }
 
 async function fetchUserConnectors(userId: string): Promise<Record<string, any>> {
@@ -251,8 +273,10 @@ export function useAdminStore() {
     attachmentStyles: readonly(attachmentStyles),
     attachmentTotal: readonly(attachmentTotal),
     connectorDepth: readonly(connectorDepth),
+    eventStats: readonly(eventStats),
+    validEvents: readonly(validEvents),
     loading: readonly(loading),
-    error: readonly(error),
+    errors: readonly(errors),
 
     fetchUsers,
     fetchFunnel,
@@ -262,6 +286,7 @@ export function useAdminStore() {
     fetchArchetypes,
     fetchAttachmentStyles,
     fetchConnectorDepth,
+    fetchEventStats,
     fetchUserConnectors,
     submitConnectorFeedback,
     logEvent,
