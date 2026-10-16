@@ -55,9 +55,14 @@ vi.mock('tone', () => {
     getDraw: () => ({ schedule: () => {} }),
   }
 })
-vi.mock('@/composables/useAuthStore', () => ({
-  useAuthStore: () => ({ apiFetch: vi.fn().mockResolvedValue({}) }),
-}))
+const authState = vi.hoisted(() => ({ authed: false, apiFetch: null as unknown as ReturnType<typeof vi.fn> }))
+vi.mock('@/composables/useAuthStore', async () => {
+  const { ref } = await import('vue')
+  authState.apiFetch = vi.fn().mockResolvedValue({})
+  return {
+    useAuthStore: () => ({ apiFetch: authState.apiFetch, isAuthenticated: ref(authState.authed) }),
+  }
+})
 
 import { useTranceEngine } from '@/composables/useTranceEngine'
 
@@ -139,6 +144,21 @@ describe('useTranceEngine external-driver mode', () => {
     expect(e.sessionActive.value).toBe(false)
     expect(e.phase.value).toBe('idle')
     expect(e.completedSession.value?.dominantPhase).toBe('deepen')
+  })
+
+  it('does not POST the session for anonymous visitors (a 401 would redirect them to /login)', async () => {
+    const e = useTranceEngine()
+    authState.authed = false
+    await e.startSession({ autoAdvance: false, phrases: false })
+    await e.finishSession()
+    expect(authState.apiFetch).not.toHaveBeenCalled()
+    expect(e.completedSession.value).not.toBeNull()
+
+    authState.authed = true
+    await e.startSession({ autoAdvance: false, phrases: false })
+    await e.finishSession()
+    expect(authState.apiFetch).toHaveBeenCalledWith('/api/vector/zeromind', expect.objectContaining({ method: 'POST' }))
+    authState.authed = false
   })
 
   it('setDepth clamps and ramps the core LFO between 6 and 3 Hz', async () => {

@@ -616,13 +616,17 @@ async function completeSession() {
     dominantPhase: phase.value,
   }
 
-  // Fire-and-forget to backend
+  // Fire-and-forget to backend — signed-in users only. The endpoint requires
+  // auth, and apiFetch treats a 401 as an expired session (logout + redirect to
+  // /login), which would yank anonymous visitors out of the post-trance overlay.
   try {
-    const { apiFetch } = useAuthStore()
-    await apiFetch('/api/vector/zeromind', {
-      method: 'POST',
-      body: JSON.stringify(sessionData),
-    })
+    const { apiFetch, isAuthenticated } = useAuthStore()
+    if (isAuthenticated.value) {
+      await apiFetch('/api/vector/zeromind', {
+        method: 'POST',
+        body: JSON.stringify(sessionData),
+      })
+    }
   } catch { /* non-blocking */ }
 
   stopSession()
