@@ -52,6 +52,14 @@ let sessionStartTime = 0
 let phaseTimer: ReturnType<typeof setTimeout> | null = null
 let phraseTimers: ReturnType<typeof setTimeout>[] = []
 
+// External-driver mode (fractionation): when autoAdvance is false no phase
+// schedules the next one; when phrasesEnabled is false the built-in phrase
+// sequences stay silent so an outside voice can speak instead.
+let autoAdvance = true
+let phrasesEnabled = true
+// Depth set by an external driver (0..1) — offsets the binaural balance.
+let depthLevel = 0
+
 // ── Guided phrase sequences ──────────────────────────────────────
 const INDUCTION_PHRASES = [
   'Find a comfortable position...',
@@ -110,6 +118,21 @@ function schedulePhrases(phrases: string[], intervalMs: number, onComplete?: () 
   )
 }
 
+// Runs a phase's phrases (if enabled) and then `next` (if autoAdvance).
+// With phrases off, `next` still fires after the same duration.
+function runPhrasesThen(phrases: string[], intervalMs: number, next: () => void) {
+  if (phrasesEnabled) {
+    schedulePhrases(phrases, intervalMs, autoAdvance ? next : undefined)
+  } else {
+    clearPhraseTimers()
+    if (autoAdvance) phaseTimer = setTimeout(next, (phrases.length - 1) * intervalMs)
+  }
+}
+
+function clearPhaseTimer() {
+  if (phaseTimer) { clearTimeout(phaseTimer); phaseTimer = null }
+}
+
 // Module 1: 2.4 Hz Baseline Modulator
 let bmCarrier: Tone.Oscillator | null = null
 let bmPulse: Tone.LFO | null = null
@@ -166,19 +189,26 @@ const PHASE_BALANCE: Partial<Record<TrancePhase, LayerBalance>> = {
   wake:      {   alpha: -40, theta: -40, schumann: -40, baselineVol: -30, baselineHz: 1.5 },
 }
 
+// dB offset from external depth: theta rises, alpha recedes as depth → 1
+function depthOffsetDb(id: BinauralLayerSpec['id']): number {
+  if (id === 'theta') return 6 * depthLevel
+  if (id === 'alpha') return -6 * depthLevel
+  return 0
+}
+
 function applyPhaseLayerBalance(p: TrancePhase, ramp = 6) {
   const b = PHASE_BALANCE[p]
   if (!b) return
   for (const [id, v] of Object.entries(binauralVoices) as [keyof typeof binauralVoices, BinauralVoice][]) {
-    v.left.volume.rampTo(b[id], ramp)
-    v.right.volume.rampTo(b[id], ramp)
+    v.left.volume.rampTo(b[id] + depthOffsetDb(id), ramp)
+    v.right.volume.rampTo(b[id] + depthOffsetDb(id), ramp)
   }
   if (bmCarrier) bmCarrier.volume.rampTo(b.baselineVol, ramp)
   if (bmPulse)   bmPulse.frequency.rampTo(b.baselineHz, ramp)
 }
 
 function phaseVol(key: keyof Omit<LayerBalance, 'baselineVol' | 'baselineHz'>, fallback = -18): number {
-  return PHASE_BALANCE[phase.value]?.[key] ?? fallback
+  return (PHASE_BALANCE[phase.value]?.[key] ?? fallback) + depthOffsetDb(key)
 }
 
 // ── Core audio setup ──
@@ -412,6 +442,7 @@ function stopGammaPulse() {
 
 // ── Phase helpers ──
 function setupCoherenceLoop() {
+  if (swellOsc) return
   swellGain = new Tone.Gain(0).toDestination()
   swellOsc = new Tone.Oscillator(40, 'sine').connect(swellGain).start()
 
@@ -419,12 +450,12 @@ function setupCoherenceLoop() {
     swellGain!.gain.rampTo(0.4, INHALE_TIME, time)
 
     Tone.getDraw().schedule(() => {
-      currentInstruction.value = 'BREATHE IN'
+      if (phrasesEnabled) currentInstruction.value = 'BREATHE IN'
       isExpanding.value = true
     }, time)
 
     Tone.getDraw().schedule(() => {
-      currentInstruction.value = 'BREATHE OUT'
+      if (phrasesEnabled) currentInstruction.value = 'BREATHE OUT'
       isExpanding.value = false
     }, time + INHALE_TIME)
 
@@ -436,6 +467,7 @@ function setupCoherenceLoop() {
 
 function scheduleDeepenSequence() {
   Tone.getTransport().start()
+  if (deepenLoop) return
   deepenLoop = new Tone.Loop((time) => {
     subBass!.triggerAttackRelease('E1', '8n', time)
     Tone.getDraw().schedule(() => {
@@ -445,18 +477,25 @@ function scheduleDeepenSequence() {
 }
 
 function runInduction() {
+  if (phase.value === 'induction') return
   phase.value = 'induction'
-  gainNode!.gain.rampTo(0.5, 5)
-  lfo!.frequency.rampTo(6, 30)
+  clearPhaseTimer()
+  gainNode?.gain.rampTo(0.5, 5)
+  lfo?.frequency.rampTo(6, 30)
   applyPhaseLayerBalance('induction', 5)
   // Cycle through induction phrases every ~3s over the 30s window
-  schedulePhrases(INDUCTION_PHRASES, 3000)
-  phaseTimer = setTimeout(() => runCoherence(), 30000)
+  if (phrasesEnabled) schedulePhrases(INDUCTION_PHRASES, 3000)
+  else clearPhraseTimers()
+  if (autoAdvance) phaseTimer = setTimeout(() => runCoherence(), 30000)
 }
 
 function runCoherence() {
+  if (phase.value === 'coherence') return
   phase.value = 'coherence'
+  clearPhaseTimer()
   clearPhraseTimers()
+  // Re-entering from a deeper phase (external driver): stop the sub-bass pulses
+  if (deepenLoop) { deepenLoop.stop().dispose(); deepenLoop = null }
   applyPhaseLayerBalance('coherence', 10)
   setupCoherenceLoop()
 }
@@ -464,7 +503,8 @@ function runCoherence() {
 function runDeepen() {
   if (phase.value === 'deepen') return
   phase.value = 'deepen'
-  lfo!.frequency.rampTo(4.5, 60)
+  clearPhaseTimer()
+  lfo?.frequency.rampTo(4.5, 60)
   applyPhaseLayerBalance('deepen', 20)
   if (swellOsc) { swellOsc.stop(); swellOsc.dispose(); swellOsc = null }
   if (swellGain) { swellGain.dispose(); swellGain = null }
@@ -474,35 +514,41 @@ function runDeepen() {
   }
   scheduleDeepenSequence()
   // Cycle deepen phrases every ~8s
-  schedulePhrases(DEEPEN_PHRASES, 8000)
+  if (phrasesEnabled) schedulePhrases(DEEPEN_PHRASES, 8000)
+  else clearPhraseTimers()
 }
 
 function runJoy() {
   if (phase.value === 'joy') return
   phase.value = 'joy'
+  clearPhaseTimer()
   // Audio: stop sub-bass pulses, soften core gain
   if (deepenLoop) { deepenLoop.stop().dispose(); deepenLoop = null }
   gainNode?.gain.rampTo(0.2, 8)
   lfo?.frequency.rampTo(3, 12)
   applyPhaseLayerBalance('joy', 10)
   // Joy phrases every ~4s, then auto-wake
-  schedulePhrases(JOY_PHRASES, 4000, () => runWake())
+  runPhrasesThen(JOY_PHRASES, 4000, () => runWake())
 }
 
 function runWake() {
+  if (phase.value === 'wake') return
   phase.value = 'wake'
+  clearPhaseTimer()
   // Audio: fade core and all layers out over ~18s
   gainNode?.gain.rampTo(0, 18)
   lfo?.frequency.rampTo(1, 18)
   applyPhaseLayerBalance('wake', 18)
   // Wake countdown phrases every ~3s, then end session
-  schedulePhrases(WAKE_PHRASES, 3000, () => {
-    setTimeout(() => completeSession(), 2000)
+  runPhrasesThen(WAKE_PHRASES, 3000, () => {
+    phaseTimer = setTimeout(() => completeSession(), 2000)
   })
 }
 
 // ── Public API ──
-async function startSession() {
+async function startSession(opts: { autoAdvance?: boolean; phrases?: boolean } = {}) {
+  autoAdvance = opts.autoAdvance ?? true
+  phrasesEnabled = opts.phrases ?? true
   await Tone.start()
   initCoreAudio()
   sessionActive.value = true
@@ -511,6 +557,31 @@ async function startSession() {
   coherenceScore.value = 0
   progress.value = 0
   runInduction()
+}
+
+// External driver: jump straight to a phase. Each run* is idempotent.
+function enterPhase(p: Exclude<TrancePhase, 'idle'>) {
+  switch (p) {
+    case 'induction': runInduction(); break
+    case 'coherence': runCoherence(); break
+    case 'deepen': runDeepen(); break
+    case 'joy': runJoy(); break
+    case 'wake': runWake(); break
+  }
+}
+
+// External driver: end the session and produce completedSession.
+function finishSession() {
+  return completeSession()
+}
+
+// External driver: 0 = light, 1 = deep. Slows the core LFO (6 → 3 Hz over
+// ~8 s) and tilts the binaural balance toward theta.
+function setDepth(d: number) {
+  depthLevel = Math.min(1, Math.max(0, Number.isFinite(d) ? d : 0))
+  if (!audioReady) return
+  lfo?.frequency.rampTo(6 - 3 * depthLevel, 8)
+  applyPhaseLayerBalance(phase.value, 8)
 }
 
 function windDown() {
@@ -563,7 +634,8 @@ function clearCompletedSession() {
 
 function stopSession() {
   clearPhraseTimers()
-  if (phaseTimer) { clearTimeout(phaseTimer); phaseTimer = null }
+  clearPhaseTimer()
+  depthLevel = 0
   if (deepenLoop) { deepenLoop.stop().dispose(); deepenLoop = null }
   if (coherenceLoopId !== undefined) { Tone.getTransport().clear(coherenceLoopId); coherenceLoopId = undefined }
   if (swellOsc) { swellOsc.stop(); swellOsc.dispose(); swellOsc = null }
@@ -602,7 +674,7 @@ function startSync() {
     syncCount.value++
     progress.value = Math.min(progress.value + 5, 100)
     tunnelPulseStrength.value = 0.3
-    if (syncCount.value > 10) runDeepen()
+    if (syncCount.value > 10 && autoAdvance) runDeepen()
   }
 }
 
@@ -622,7 +694,7 @@ function stopSync() {
   syncCount.value++
   progress.value = Math.min(progress.value + 5, 100)
 
-  if (coherenceScore.value > 70 && syncCount.value > 5) {
+  if (autoAdvance && coherenceScore.value > 70 && syncCount.value > 5) {
     runDeepen()
   }
 }
@@ -745,6 +817,9 @@ export function useTranceEngine() {
     stopSession,
     completeSession,
     windDown,
+    enterPhase,
+    finishSession,
+    setDepth,
     startSync,
     stopSync,
 
