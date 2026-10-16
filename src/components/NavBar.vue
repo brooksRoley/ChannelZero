@@ -156,6 +156,7 @@ const showBgModal = ref(false)
 // Primary nav links
 const primaryLinks = [
   { name: 'home', path: '/', label: 'Home' },
+  { name: 'practice', path: '/practice', label: 'Practice' },
   { name: 'learn', path: '/learn', label: 'Learn' },
   { name: 'sessions', path: '/sessions', label: 'Sessions' },
   { name: 'about', path: '/about', label: 'About' },
