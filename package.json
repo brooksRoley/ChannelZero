@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.4",
+    "@mediapipe/tasks-vision": "1.1.1",
     "@vueuse/core": "^11.3.0",
     "matter-js": "^0.20.0",
     "pinia": "^3.0.4",
