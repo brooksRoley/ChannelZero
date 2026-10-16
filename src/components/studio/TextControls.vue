@@ -149,10 +149,17 @@
     >
       + Add text layer
     </button>
+
+    <p v-if="flashRate > 3" class="text-[10px] leading-relaxed text-amber-300/80" role="alert">
+      Subliminal layers combine to ~{{ flashRate.toFixed(1) }} flashes/sec. More than 3/sec can trigger
+      photosensitive seizures — lengthen an interval or remove a layer.
+    </p>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
+import { subliminalFlashRate } from '@/composables/useGlassComposer'
 import {
   makeDefaultTextLayer,
   type Anchor,
@@ -163,6 +170,8 @@ import {
 
 // The parent passes its reactive composition.textLayers array; we mutate it in place.
 const props = defineProps<{ layers: TextLayer[] }>()
+
+const flashRate = computed(() => subliminalFlashRate(props.layers))
 
 // Curated, no-external-load font stacks (system / web-safe only).
 const FONT_FAMILIES: { label: string; value: string }[] = [

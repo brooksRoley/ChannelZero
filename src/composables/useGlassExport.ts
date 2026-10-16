@@ -1,7 +1,8 @@
 import { ref, readonly } from 'vue'
 import * as Tone from 'tone'
-import { drawFrame } from './useGlassComposer'
+import { drawFrame, drawFade } from './useGlassComposer'
 import type { TextLayer } from './studioTypes'
+import { trimProgress, sessionEnvelope, type TrimRange } from './studioTrim'
 
 /**
  * Records the Glass Studio composition to a downloadable video file.
@@ -11,13 +12,13 @@ import type { TextLayer } from './studioTypes'
  *      text is drawn by the SHARED `drawFrame` composer so the export is
  *      byte-for-byte identical to the live preview.
  *   2. canvas.captureStream(30) → video track.
- *   3. MediaStreamAudioDestinationNode captures the original media audio, the
- *      Tone.js synthesis master, and any extra audio nodes (e.g. a binaural
- *      engine — the Sound layer wires this in) into one audio track.
+ *   3. MediaStreamAudioDestinationNode taps the studio's session bus — media
+ *      audio, Tone.js synthesis and the binaural engine already summed and
+ *      faded — into one audio track.
  *   4. MediaRecorder merges the two tracks and writes chunks.
- *   5. On media end → stop → Blob → download link.
+ *   5. On reaching the trim Out point (or media end) → stop → Blob → download link.
  *
- * The export runs in real-time (duration = media duration).
+ * The export runs in real-time (duration = trim range, default the whole media).
  */
 
 const isRecording = ref(false)
@@ -43,14 +44,21 @@ function pickMime(): string {
   return 'video/webm'
 }
 
+export interface ExportOptions {
+  /** Live beat for `syncToBeat` motion. */
+  beatHz?: number
+  /** Trim range; defaults to the whole media. */
+  range?: TrimRange
+  /** Session fade-to-black at the range edges, seconds. */
+  fadeS?: number
+}
+
 export function useGlassExport() {
   async function startExport(
     mediaEl: HTMLVideoElement,
     textLayers: TextLayer[],
-    analyserNode: AnalyserNode | null,
-    toneMasterNode: GainNode,
-    extraAudioNodes: AudioNode[] = [],
-    beatHz?: number,
+    audioOut: AudioNode,
+    { beatHz, range, fadeS = 0 }: ExportOptions = {},
   ) {
     if (isRecording.value) return
     await Tone.start()
@@ -58,6 +66,10 @@ export function useGlassExport() {
     const ctx = Tone.getContext().rawContext as AudioContext
 
     // ── Canvas for compositing ──
+    const startS = range?.startS ?? 0
+    const endS = range && range.endS > startS ? range.endS : mediaEl.duration
+    const span: TrimRange = { startS, endS }
+
     const w = mediaEl.videoWidth || 1920
     const h = mediaEl.videoHeight || 1080
     exportCanvas = document.createElement('canvas')
@@ -69,13 +81,7 @@ export function useGlassExport() {
     const canvasStream = exportCanvas.captureStream(30)
     const audioDest = ctx.createMediaStreamDestination()
 
-    // Route original audio + tone synthesis (+ any extra nodes, e.g. binaural)
-    // into the export bus.
-    if (analyserNode) analyserNode.connect(audioDest)
-    toneMasterNode.connect(audioDest)
-    for (const node of extraAudioNodes) {
-      try { node.connect(audioDest) } catch { /* already connected */ }
-    }
+    audioOut.connect(audioDest)
 
     const combined = new MediaStream([
       ...canvasStream.getVideoTracks(),
@@ -102,12 +108,8 @@ export function useGlassExport() {
       a.click()
       setTimeout(() => URL.revokeObjectURL(url), 5000)
 
-      // Tear down export-only connections
-      if (analyserNode) try { analyserNode.disconnect(audioDest) } catch { /* ok */ }
-      try { toneMasterNode.disconnect(audioDest) } catch { /* ok */ }
-      for (const node of extraAudioNodes) {
-        try { node.disconnect(audioDest) } catch { /* ok */ }
-      }
+      // Tear down the export-only connection
+      try { audioOut.disconnect(audioDest) } catch { /* ok */ }
 
       isRecording.value = false
       progress.value = 0
@@ -131,17 +133,25 @@ export function useGlassExport() {
       // media clock so subliminal flashes / motion are frame-accurate.
       const clockMs = mediaEl.currentTime * 1000
       drawFrame(exportCtx, clockMs, textLayers, { w: cw, h: ch }, beatHz)
+      if (isFinite(span.endS)) {
+        drawFade(exportCtx, { w: cw, h: ch }, sessionEnvelope(span, mediaEl.currentTime, fadeS))
+      }
 
-      // Progress
-      if (mediaEl.duration && isFinite(mediaEl.duration)) {
-        progress.value = mediaEl.currentTime / mediaEl.duration
+      // Progress / Out point
+      if (isFinite(span.endS)) {
+        progress.value = trimProgress(span, mediaEl.currentTime)
+        if (mediaEl.currentTime >= span.endS) {
+          mediaEl.pause()
+          stopExport()
+          return
+        }
       }
 
       rafId = requestAnimationFrame(renderFrame)
     }
 
     // ── Kick off ──
-    mediaEl.currentTime = 0
+    mediaEl.currentTime = startS
     recorder.start(200) // collect chunks every 200ms
     isRecording.value = true
 

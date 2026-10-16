@@ -65,11 +65,15 @@ export interface BinauralConfig {
   band: Band // preset mode
   journey: { band: Band; durationS: number }[] // journey mode, auto-fit to media length
   volume: number // 0..100
+  /** Texture bed under the beat, 0..1 each (see useBinauralEngine). */
+  textures: { noise: number; pad: number; shimmer: number }
 }
 
 export interface GlassComposition {
   textLayers: TextLayer[]
   binaural: BinauralConfig
+  /** Fade in/out at the edges of the (trimmed) session, seconds. 0 = hard cut. */
+  fadeS: number
   recipeId?: string
 }
 
@@ -134,6 +138,7 @@ export function makeDefaultBinauralConfig(): BinauralConfig {
     band: 'theta',
     journey: [],
     volume: 40,
+    textures: { noise: 0, pad: 0, shimmer: 0 },
   }
 }
 
@@ -141,5 +146,6 @@ export function makeDefaultComposition(): GlassComposition {
   return {
     textLayers: [makeDefaultTextLayer()],
     binaural: makeDefaultBinauralConfig(),
+    fadeS: 3,
   }
 }

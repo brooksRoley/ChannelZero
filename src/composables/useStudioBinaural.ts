@@ -122,7 +122,11 @@ export function phaseAtTime(plan: JourneyPhase[], tS: number): number {
 
 // ── Composable ─────────────────────────────────────────────────────
 
-export function useStudioBinaural(config: BinauralConfig) {
+/**
+ * @param output  Optional node to send the engine into instead of the speakers
+ *   (Glass Studio's session bus, so one fade/export tap covers every source).
+ */
+export function useStudioBinaural(config: BinauralConfig, output?: () => AudioNode | null) {
   const engine = useBinauralEngine()
 
   /** The beat currently playing (Hz). Read by preview/export for motion sync. */
@@ -140,6 +144,12 @@ export function useStudioBinaural(config: BinauralConfig) {
     await Tone.start()
     const ctx = Tone.getContext().rawContext as AudioContext
     engine.init(ctx) // no-op if already started
+    const out = output?.()
+    if (out) engine.routeTo(out)
+  }
+
+  function applyTextures() {
+    engine.setTextures(config.textures ?? { noise: 0, pad: 0, shimmer: 0 })
   }
 
   function applyPreset(band: Band) {
@@ -179,10 +189,16 @@ export function useStudioBinaural(config: BinauralConfig) {
     engine.setVolume(v)
   }
 
+  /** Re-apply texture levels only (no beat re-ramp, journey keeps its place). */
+  function updateTextures() {
+    if (running.value) applyTextures()
+  }
+
   /** Apply the current config to a running engine (mode / band / journey edits). */
   function refresh() {
     if (!running.value) return
     engine.setVolume(config.volume)
+    applyTextures()
     if (config.mode === 'preset') {
       applyPreset(config.band)
     } else {
@@ -197,6 +213,7 @@ export function useStudioBinaural(config: BinauralConfig) {
   async function start() {
     await ensureEngine()
     engine.setVolume(config.volume)
+    applyTextures()
     running.value = true
     if (config.mode === 'preset') {
       applyPreset(config.band)
@@ -237,6 +254,7 @@ export function useStudioBinaural(config: BinauralConfig) {
     stop,
     applyPreset,
     refresh,
+    updateTextures,
     tickJourney,
     setMediaDuration,
     setVolume,

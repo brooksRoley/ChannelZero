@@ -17,6 +17,7 @@
 import * as Tone from 'tone'
 import { BINAURAL_LAYERS, useTranceEngine, type BinauralLayerSpec } from './useTranceEngine'
 import { BANDS } from './useStudioBinaural'
+import { isochronicDepth } from './useBinauralEngine'
 
 // ── Bands ─────────────────────────────────────────────────────────────
 
@@ -45,6 +46,8 @@ export interface BinauralPair {
   leftHz: number
   rightHz: number
   targetBand: Band
+  /** True when the source also amplitude-pulses the carrier at the beat rate. */
+  isochronic?: boolean
 }
 
 export interface BinauralAudit extends BinauralPair {
@@ -67,7 +70,9 @@ export function auditBinauralPair(pair: BinauralPair): BinauralAudit {
     checks.push({ level: 'fail', message: `Labelled ${pair.targetBand} but a ${beatHz.toFixed(2)} Hz beat is ${band}` })
   }
 
-  if (beatHz > 30) {
+  if (beatHz > 30 && pair.isochronic) {
+    checks.push({ level: 'pass', message: `Reinforced with an isochronic pulse at ${beatHz.toFixed(0)} Hz` })
+  } else if (beatHz > 30) {
     checks.push({ level: 'warn', message: 'Beats above ~30 Hz are only weakly perceived binaurally; consider an isochronic or monaural pulse' })
   }
 
@@ -103,6 +108,7 @@ export function allBinauralPairs(): BinauralPair[] {
     leftHz: def.carrierHz - def.beatHz / 2,
     rightHz: def.carrierHz + def.beatHz / 2,
     targetBand: band,
+    isochronic: isochronicDepth(def.beatHz) > 0,
   }))
   return [...engine, ...studio]
 }

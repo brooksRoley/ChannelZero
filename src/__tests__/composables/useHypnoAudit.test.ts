@@ -49,6 +49,11 @@ describe('auditBinauralPair', () => {
     expect(a.worst).toBe('warn')
   })
 
+  it('passes fast beats reinforced with an isochronic pulse', () => {
+    const a = auditBinauralPair({ source: 't', label: 'Gamma', leftHz: 200, rightHz: 240, targetBand: 'gamma', isochronic: true })
+    expect(a.worst).toBe('pass')
+  })
+
   it('fails carriers above 1 kHz', () => {
     const a = auditBinauralPair({ source: 't', label: 'High', leftHz: 1495, rightHz: 1505, targetBand: 'alpha' })
     expect(a.worst).toBe('fail')
@@ -60,6 +65,11 @@ describe('allBinauralPairs', () => {
     const studio = allBinauralPairs().find(p => p.source === 'Glass studio')!
     expect(studio.leftHz).toBe(200)
     expect(studio.rightHz).toBe(240)
+  })
+
+  it('marks the studio gamma band as isochronic', () => {
+    const studio = allBinauralPairs().find(p => p.source === 'Glass studio')!
+    expect(studio.isochronic).toBe(true)
   })
 })
 

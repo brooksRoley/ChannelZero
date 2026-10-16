@@ -63,9 +63,10 @@ function tick() {
 export function useAudioSync() {
   /**
    * Connect an audio/video element for analysis.
-   * Safe to call repeatedly with the same element.
+   * Safe to call repeatedly with the same element. `destination` defaults to
+   * the speakers.
    */
-  async function connect(el: HTMLMediaElement): Promise<AnalyserNode> {
+  async function connect(el: HTMLMediaElement, destination?: AudioNode): Promise<AnalyserNode> {
     await Tone.start()
     const ctx = Tone.getContext().rawContext as AudioContext
 
@@ -85,7 +86,7 @@ export function useAudioSync() {
     dataArray = new Uint8Array(analyserNode.fftSize)
 
     src.connect(analyserNode)
-    analyserNode.connect(ctx.destination)
+    analyserNode.connect(destination ?? ctx.destination)
 
     // Start analysis loop
     if (rafId) cancelAnimationFrame(rafId)
