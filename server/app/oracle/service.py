@@ -15,7 +15,6 @@ import logging
 
 from ..config import get_settings
 from ..db import get_conn
-from ..llm.encryption import get_user_llm_key
 from ..vector.service import _embed, _get_index_sync, NAMESPACE_USERS
 from .models import SynthesisRequest, PsychCoordinate
 
@@ -281,47 +280,13 @@ async def _synthesize_and_upsert_inner(user_id: str, data: SynthesisRequest) -> 
     logger.info("Oracle synthesis initiated for %s", user_id)
 
     prompt = _build_oracle_prompt(user_id, data)
-    coordinate: PsychCoordinate | None = None
 
-    # 1. Try BYOK first; if the provider lacks verified JSON mode and parsing
-    #    fails, retry once with a stricter simplified prompt before falling
-    #    back to the server key.
-    byok = await get_user_llm_key(user_id)
-    if byok:
-        provider, api_key = byok
-        logger.info("Oracle using BYOK key (%s) for %s", provider, user_id)
-        try:
-            coordinate = await _llm_synthesize(prompt, provider, api_key)
-        except _PARSE_ERRORS as e:
-            cfg = _PROVIDER_CONFIG.get(provider, {})
-            if not cfg.get("verified_json_mode"):
-                logger.warning(
-                    "oracle_byok_json_malformed: provider=%s user=%s err=%s — retrying with simplified prompt",
-                    provider, user_id, e,
-                )
-                try:
-                    simplified = _build_simplified_prompt(user_id, data)
-                    coordinate = await _llm_synthesize(simplified, provider, api_key)
-                except Exception as e2:
-                    logger.warning(
-                        "oracle_byok_retry_failed: provider=%s user=%s err=%s — falling back to server key",
-                        provider, user_id, e2,
-                    )
-            else:
-                logger.warning(
-                    "oracle_byok_parse_failed_with_verified_json: provider=%s user=%s err=%s — falling back to server key",
-                    provider, user_id, e,
-                )
-
-    # 2. Fall back to server-level OpenAI key.
-    if coordinate is None:
-        server_key = _server_completion_key()
-        if not server_key:
-            raise RuntimeError(
-                "No LLM key available — user has no working BYOK key and server openai_api_key is not configured"
-            )
-        logger.info("Oracle using server key (openai) for %s", user_id)
-        coordinate = await _llm_synthesize(prompt, "openai", server_key)
+    # Server-level key only (BYOK was removed; the producer runs the service).
+    server_key = _server_completion_key()
+    if not server_key:
+        raise RuntimeError("No LLM key available — server openai_api_key is not configured")
+    logger.info("Oracle using server key (openai) for %s", user_id)
+    coordinate = await _llm_synthesize(prompt, "openai", server_key)
 
     # 2.5 Persist coordinate to Postgres
     async with get_conn() as conn:

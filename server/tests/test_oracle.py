@@ -8,7 +8,7 @@ Covers:
  - GET /api/oracle/coordinate — synthesized=False + synthesized=True paths
  - POST /api/oracle/synthesize — returns initiated + background task fires
  - synthesize_and_upsert — error containment (HTTPStatusError, generic Exception)
- - _synthesize_and_upsert_inner — BYOK success, server-key fallback, JSON-malformed
+ - _synthesize_and_upsert_inner — server-key synthesis, embed/Pinecone aborts, missing key
    retry, embed failure abort, Pinecone failure abort
 
 Run: cd server && python -m pytest tests/test_oracle.py -v
@@ -358,10 +358,9 @@ def _mock_llm_response(coord: dict) -> AsyncMock:
 
 class TestSynthesizeAndUpsertInner:
     @pytest.mark.anyio
-    async def test_server_key_fallback_when_no_byok(self):
+    async def test_synthesizes_with_server_key(self):
         conn = FakeConn()
         with (
-            patch("app.oracle.service.get_user_llm_key", AsyncMock(return_value=None)),
             patch("app.oracle.service._server_completion_key", return_value="sk-server"),
             patch("app.oracle.service._llm_synthesize", _mock_llm_response(_VALID_COORD)),
             patch("app.oracle.service.get_conn", make_get_conn(conn)),
@@ -374,42 +373,6 @@ class TestSynthesizeAndUpsertInner:
         assert "oracle_coordinate" in conn.execute_calls[0][0]
 
     @pytest.mark.anyio
-    async def test_byok_success_path(self):
-        conn = FakeConn()
-        with (
-            patch("app.oracle.service.get_user_llm_key", AsyncMock(return_value=("openai", "sk-byok"))),
-            patch("app.oracle.service._llm_synthesize", _mock_llm_response(_VALID_COORD)),
-            patch("app.oracle.service.get_conn", make_get_conn(conn)),
-            patch("app.oracle.service._embed", AsyncMock(return_value=[0.1] * 10)),
-            patch("app.oracle.service.asyncio.to_thread", AsyncMock(return_value=None)),
-        ):
-            await _synthesize_and_upsert_inner(USER_STR, SynthesisRequest())
-
-        assert len(conn.execute_calls) == 1
-
-    @pytest.mark.anyio
-    async def test_byok_json_malformed_retries_simplified_for_unverified_provider(self):
-        call_count = {"n": 0}
-
-        async def _fake_llm(prompt, provider, key):
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                raise json.JSONDecodeError("bad json", "", 0)
-            return PsychCoordinate(**_VALID_COORD)
-
-        conn = FakeConn()
-        with (
-            patch("app.oracle.service.get_user_llm_key", AsyncMock(return_value=("anthropic", "sk-ant"))),
-            patch("app.oracle.service._llm_synthesize", _fake_llm),
-            patch("app.oracle.service.get_conn", make_get_conn(conn)),
-            patch("app.oracle.service._embed", AsyncMock(return_value=[0.1] * 10)),
-            patch("app.oracle.service.asyncio.to_thread", AsyncMock(return_value=None)),
-        ):
-            await _synthesize_and_upsert_inner(USER_STR, SynthesisRequest())
-
-        assert call_count["n"] == 2  # original + retry
-
-    @pytest.mark.anyio
     async def test_embed_failure_aborts_pinecone_upsert(self):
         conn = FakeConn()
         pinecone_called = {"called": False}
@@ -418,7 +381,6 @@ class TestSynthesizeAndUpsertInner:
             pinecone_called["called"] = True
 
         with (
-            patch("app.oracle.service.get_user_llm_key", AsyncMock(return_value=None)),
             patch("app.oracle.service._server_completion_key", return_value="sk-server"),
             patch("app.oracle.service._llm_synthesize", _mock_llm_response(_VALID_COORD)),
             patch("app.oracle.service.get_conn", make_get_conn(conn)),
@@ -441,7 +403,6 @@ class TestSynthesizeAndUpsertInner:
             return None
 
         with (
-            patch("app.oracle.service.get_user_llm_key", AsyncMock(return_value=None)),
             patch("app.oracle.service._server_completion_key", return_value="sk-server"),
             patch("app.oracle.service._llm_synthesize", _mock_llm_response(_VALID_COORD)),
             patch("app.oracle.service.get_conn", make_get_conn(conn)),
@@ -456,7 +417,6 @@ class TestSynthesizeAndUpsertInner:
     @pytest.mark.anyio
     async def test_no_server_key_raises_runtime_error(self):
         with (
-            patch("app.oracle.service.get_user_llm_key", AsyncMock(return_value=None)),
             patch("app.oracle.service._server_completion_key", return_value=None),
         ):
             with pytest.raises(RuntimeError, match="No LLM key available"):
