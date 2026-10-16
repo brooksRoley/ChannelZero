@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 
 from ..config import get_settings
 
+# Floor for the empty-reply retry, so a tiny budget (e.g. the health ping's 5)
+# still leaves a reasoning model room to answer.
+_RETRY_MIN_TOKENS = 1024
+
 
 _PROVIDERS = {
     "openai": {
@@ -79,6 +83,9 @@ async def chat_completion(
     """
     Send a single user-message prompt and return the assistant's text content.
 
+    An empty reply (a reasoning model that spent its budget thinking) is
+    retried once with more room; if it is still empty, raises 502.
+
     Raises 502 on upstream failure, 503 if no provider is configured.
     """
     provider, url, api_key = _resolve_provider()
@@ -101,6 +108,33 @@ async def chat_completion(
         "messages": [{"role": "user", "content": prompt}],
     }
 
+    content, finish = await _post(provider, url, headers, payload, timeout)
+    if content:
+        return content
+
+    # Reasoning models (e.g. nemotron on OpenRouter's free tier) can spend the
+    # whole budget thinking and return content=None. Retry once with room to
+    # answer and, on OpenRouter, ask for brief, hidden reasoning.
+    logger.warning(
+        "LLM empty reply: %s model=%s finish=%s max_tokens=%d — retrying",
+        provider, chosen_model, finish, max_tokens,
+    )
+    retry = {**payload, "max_tokens": max(max_tokens * 4, _RETRY_MIN_TOKENS)}
+    if provider == "openrouter":
+        retry["reasoning"] = {"effort": "low", "exclude": True}
+    content, finish = await _post(provider, url, headers, retry, timeout)
+    if content:
+        return content
+
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=f"LLM returned an empty reply ({chosen_model}, finish={finish}). "
+               "A non-reasoning LLM_MODEL avoids this.",
+    )
+
+
+async def _post(provider: str, url: str, headers: dict, payload: dict, timeout: float) -> tuple[str, str | None]:
+    """POST one completion; return (stripped content or "", finish_reason)."""
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(url, json=payload, headers=headers)
 
@@ -124,9 +158,12 @@ async def chat_completion(
 
     data = resp.json()
     try:
-        return data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError) as exc:
+        choice = data["choices"][0]
+        message = choice["message"]
+    except (KeyError, IndexError, TypeError) as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Malformed LLM response",
         ) from exc
+    content = message.get("content") if isinstance(message, dict) else None
+    return (content.strip() if isinstance(content, str) else ""), choice.get("finish_reason")
