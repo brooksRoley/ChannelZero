@@ -98,15 +98,16 @@ function fmtDay(t: number) {
 </script>
 
 <template>
+  <div class="dmt-field practice-root">
   <div class="practice">
     <header class="head">
-      <h1>Practice</h1>
+      <h1 class="dmt-title">Practice</h1>
       <p>Learn a method, try it, and notice what changes. Everything here stays on this device.</p>
     </header>
 
     <!-- ── Finished: the mirror ── -->
-    <section v-if="finished" class="panel panel--glow">
-      <p class="eyebrow">{{ METHODS[finished.method].name }} · done</p>
+    <section v-if="finished" class="panel dmt-card dmt-card--prism">
+      <p class="dmt-eyebrow">{{ METHODS[finished.method].name }} · done</p>
       <p class="shift">{{ shiftLine }}</p>
       <p v-if="afterReading" class="reflection">
         <span class="tone">{{ afterReading.tone }}</span>{{ afterReading.reflection }}
@@ -116,32 +117,32 @@ function fmtDay(t: number) {
           <span class="muted">{{ n.prompt }}</span> {{ n.text }} <span class="tone tone--inline">{{ n.tone }}</span>
         </li>
       </ul>
-      <button class="btn" @click="startAnother">Back to practice</button>
+      <button class="dmt-btn" @click="startAnother">Back to practice</button>
     </section>
 
     <!-- ── A session is open: after-check ── -->
-    <section v-else-if="pending && pendingMethod" class="panel panel--glow">
-      <p class="eyebrow">{{ pendingMethod.name }} · {{ pending.sessionEndedAt ? 'finished' : 'in progress' }}</p>
+    <section v-else-if="pending && pendingMethod" class="panel dmt-card dmt-card--prism">
+      <p class="dmt-eyebrow">{{ pendingMethod.name }} · {{ pending.sessionEndedAt ? 'finished' : 'in progress' }}</p>
       <template v-if="pending.sessionEndedAt">
         <h2>{{ pendingMethod.prompts.after }}</h2>
         <div class="scale" role="radiogroup" aria-label="How do you feel now?">
           <button
             v-for="(w, i) in SCALE" :key="w" role="radio" :aria-checked="afterRating === i + 1"
-            class="scale-step" :class="{ 'scale-step--on': afterRating === i + 1 }" @click="afterRating = i + 1"
+            class="scale-step dmt-chip" :class="{ 'dmt-chip--on': afterRating === i + 1 }" @click="afterRating = i + 1"
           >{{ w }}</button>
         </div>
         <p class="muted small">You started at “{{ SCALE[pending.before.rating - 1] }}”.</p>
-        <textarea v-model="afterText" rows="2" maxlength="600" placeholder="a few words, if you like…" class="field" />
-        <button class="btn btn--primary" :disabled="finishing" @click="complete">
+        <textarea v-model="afterText" rows="2" maxlength="600" placeholder="a few words, if you like…" class="field dmt-input" />
+        <button class="dmt-btn dmt-btn--prism" :disabled="finishing" @click="complete">
           {{ finishing ? 'Reading…' : 'Close the session' }}
         </button>
       </template>
       <template v-else>
         <p class="muted">Your session is still open.</p>
         <div class="row">
-          <button class="btn btn--primary" @click="router.push(pendingMethod.route)">Return to it</button>
-          <button class="btn" @click="markEnded">I finished it</button>
-          <button class="btn btn--ghost" @click="abandon">Let it go</button>
+          <button class="dmt-btn dmt-btn--prism" @click="router.push(pendingMethod.route)">Return to it</button>
+          <button class="dmt-btn" @click="markEnded">I finished it</button>
+          <button class="dmt-btn btn--ghost" @click="abandon">Let it go</button>
         </div>
       </template>
     </section>
@@ -151,7 +152,7 @@ function fmtDay(t: number) {
       <section class="methods" aria-label="Methods">
         <button
           v-for="id in METHOD_ORDER" :key="id"
-          class="method" :class="{ 'method--on': chosen === id }" @click="chosen = id"
+          class="method dmt-chip" :class="{ 'dmt-chip--on': chosen === id }" @click="chosen = id"
         >
           <span class="method-name">{{ METHODS[id].name }}</span>
           <span class="method-meta">{{ familiarityByMethod[id].label }} · {{ METHODS[id].minutes }} min</span>
@@ -160,8 +161,8 @@ function fmtDay(t: number) {
         </button>
       </section>
 
-      <section class="panel">
-        <p class="eyebrow">{{ method.name }}<span v-if="method.needsHeadphones"> · headphones</span></p>
+      <section class="panel dmt-card">
+        <p class="dmt-eyebrow">{{ method.name }}<span v-if="method.needsHeadphones"> · headphones</span></p>
         <p class="what">{{ method.what }}</p>
         <p v-if="chosen === suggested" class="muted small">{{ suggestion.reason }}</p>
         <ol class="how">
@@ -175,20 +176,20 @@ function fmtDay(t: number) {
         <div class="scale" role="radiogroup" aria-label="How do you feel right now?">
           <button
             v-for="(w, i) in SCALE" :key="w" role="radio" :aria-checked="beforeRating === i + 1"
-            class="scale-step" :class="{ 'scale-step--on': beforeRating === i + 1 }" @click="beforeRating = i + 1"
+            class="scale-step dmt-chip" :class="{ 'dmt-chip--on': beforeRating === i + 1 }" @click="beforeRating = i + 1"
           >{{ w }}</button>
         </div>
-        <textarea v-model="beforeText" rows="2" maxlength="600" placeholder="a few words, if you like…" class="field" />
+        <textarea v-model="beforeText" rows="2" maxlength="600" placeholder="a few words, if you like…" class="field dmt-input" />
         <p v-if="beforeReading" class="reflection small">{{ beforeReading.reflection }}</p>
-        <button class="btn btn--primary" :disabled="starting" @click="start">Begin {{ method.name.toLowerCase() }}</button>
+        <button class="dmt-btn dmt-btn--prism" :disabled="starting" @click="start">Begin {{ method.name.toLowerCase() }}</button>
       </section>
     </template>
 
     <!-- ── The thread ── -->
-    <section class="panel">
-      <p class="eyebrow">Your thread · last 14 days</p>
+    <section class="panel dmt-card">
+      <p class="dmt-eyebrow">Your thread · last 14 days</p>
       <div class="thread" :aria-label="`${threadDays} of the last 14 days practiced`">
-        <span v-for="(d, i) in thread" :key="i" class="knot" :class="{ 'knot--on': d, 'knot--today': i === thread.length - 1 }" />
+        <span v-for="(d, i) in thread" :key="i" class="knot" :class="{ 'knot--on dmt-jewel': d, 'knot--today': i === thread.length - 1 }" />
       </div>
       <p v-if="overallShift !== null" class="muted small">
         Average shift across {{ entries.filter(e => e.after).length }} reflected sessions:
@@ -217,128 +218,80 @@ function fmtDay(t: number) {
       </span>
     </label>
   </div>
+  </div>
 </template>
 
 <style scoped>
+/* Look comes from src/styles/dmt.css; this is layout and type scale only. */
+.practice-root { min-height: 100vh; }
 .practice {
   max-width: 640px;
   margin: 0 auto;
-  padding: 32px 16px 120px;
-  color: #e2e8f0;
+  padding: 40px 16px 120px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
-.head h1 { font-size: 22px; font-weight: 300; letter-spacing: 0.2em; text-transform: uppercase; }
-.head p { margin-top: 6px; font-size: 13px; color: rgba(226, 232, 240, 0.5); }
+.head h1 { font-size: 28px; font-weight: 200; letter-spacing: 0.32em; text-transform: uppercase; }
+.head p { margin-top: 8px; font-size: 13px; color: var(--dmt-ink-dim); }
 
-.panel {
-  padding: 18px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.panel--glow { border-color: rgba(167, 139, 250, 0.25); background: rgba(167, 139, 250, 0.04); }
-.eyebrow { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: rgba(167, 139, 250, 0.8); }
-h2 { font-size: 16px; font-weight: 300; }
-.what { font-size: 14px; line-height: 1.55; font-weight: 300; }
-.muted { color: rgba(226, 232, 240, 0.45); }
-.small { font-size: 12px; line-height: 1.5; }
+.panel { padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+h2 { font-size: 17px; font-weight: 300; color: var(--dmt-ink); }
+.what { font-size: 14.5px; line-height: 1.6; font-weight: 300; }
+.muted { color: var(--dmt-ink-faint); }
+.small { font-size: 12px; line-height: 1.55; }
 
-.methods { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.methods { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .method {
-  position: relative;
   text-align: left;
-  padding: 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  color: inherit;
+  padding: 12px 13px;
   display: flex;
   flex-direction: column;
   gap: 4px;
   cursor: pointer;
-  transition: border-color 0.2s, background 0.2s;
 }
-.method:hover { border-color: rgba(255, 255, 255, 0.15); }
-.method--on { border-color: rgba(167, 139, 250, 0.45); background: rgba(167, 139, 250, 0.06); }
-.method-name { font-size: 13px; }
-.method-meta { font-size: 10.5px; color: rgba(226, 232, 240, 0.45); }
-.method-bar { height: 2px; border-radius: 2px; background: rgba(255, 255, 255, 0.06); overflow: hidden; margin-top: 4px; }
-.method-bar span { display: block; height: 100%; background: rgba(167, 139, 250, 0.6); }
-.method-tag { font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(52, 211, 153, 0.8); }
+.method-name { font-size: 13px; color: var(--dmt-ink); }
+.method-meta { font-size: 10.5px; color: var(--dmt-ink-faint); }
+.method-bar { height: 2px; border-radius: 2px; background: rgba(190, 160, 255, 0.12); overflow: hidden; margin-top: 5px; }
+.method-bar span { display: block; height: 100%; background: var(--dmt-prism-linear); }
+.method-tag { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dmt-lime); }
 
-.how { padding-left: 18px; font-size: 13px; line-height: 1.6; color: rgba(226, 232, 240, 0.75); list-style: decimal; }
-.learn { font-size: 12px; color: rgba(167, 139, 250, 0.8); }
-.divider { height: 1px; background: rgba(255, 255, 255, 0.06); margin: 4px 0; }
+.how { padding-left: 18px; font-size: 13px; line-height: 1.65; color: var(--dmt-ink-dim); list-style: decimal; }
+.how li::marker { color: var(--dmt-cyan); }
+.learn { font-size: 12px; color: var(--dmt-cyan); }
+.divider { height: 1px; background: linear-gradient(90deg, transparent, rgba(190, 160, 255, 0.3), transparent); margin: 4px 0; }
 
 .scale { display: flex; gap: 6px; flex-wrap: wrap; }
-.scale-step {
-  flex: 1 1 0;
-  min-width: 64px;
-  padding: 8px 4px;
-  border-radius: 10px;
-  font-size: 11.5px;
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: rgba(226, 232, 240, 0.55);
-  cursor: pointer;
-}
-.scale-step--on { border-color: rgba(167, 139, 250, 0.6); color: #e2e8f0; background: rgba(167, 139, 250, 0.1); }
+.scale-step { flex: 1 1 0; min-width: 64px; padding: 9px 4px; font-size: 11.5px; cursor: pointer; }
 
-.field {
-  width: 100%;
-  resize: vertical;
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  padding: 8px 10px;
-  font-size: 13px;
-  color: #e2e8f0;
-  outline: none;
-}
-.field:focus { border-color: rgba(167, 139, 250, 0.4); }
+.field { width: 100%; resize: vertical; padding: 9px 11px; font-size: 13px; }
 
 .row { display: flex; gap: 8px; flex-wrap: wrap; }
-.btn {
-  align-self: flex-start;
-  padding: 8px 16px;
-  border-radius: 999px;
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: rgba(226, 232, 240, 0.8);
-  cursor: pointer;
-}
-.btn:disabled { opacity: 0.4; cursor: default; }
-.btn--primary { background: rgba(167, 139, 250, 0.15); border-color: rgba(167, 139, 250, 0.4); color: #ede9fe; }
-.btn--ghost { border-color: transparent; color: rgba(226, 232, 240, 0.4); }
+.dmt-btn { align-self: flex-start; }
+.btn--ghost { border-color: transparent; background: transparent; color: var(--dmt-ink-faint); }
 
-.shift { font-size: 16px; font-weight: 300; }
-.reflection { font-size: 13.5px; line-height: 1.55; font-weight: 300; color: rgba(226, 232, 240, 0.85); }
+.shift { font-size: 17px; font-weight: 300; }
+.reflection { font-size: 14px; line-height: 1.6; font-weight: 300; color: var(--dmt-ink); }
 .tone {
   display: block;
   font-size: 9px;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: rgba(167, 139, 250, 0.8);
-  margin-bottom: 2px;
+  color: var(--dmt-magenta);
+  margin-bottom: 3px;
 }
 .tone--inline { display: inline; margin-left: 6px; }
-.during { font-size: 12.5px; line-height: 1.6; display: flex; flex-direction: column; gap: 2px; }
+.during { font-size: 12.5px; line-height: 1.6; display: flex; flex-direction: column; gap: 3px; }
 
-.thread { display: flex; gap: 6px; align-items: center; }
-.knot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.12); }
-.knot--on { background: rgba(167, 139, 250, 0.7); border-color: transparent; }
-.knot--today { outline: 1px solid rgba(255, 255, 255, 0.25); outline-offset: 2px; }
-.notice { font-size: 13px; line-height: 1.6; font-weight: 300; display: flex; flex-direction: column; gap: 4px; }
-.recent { font-size: 12px; display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.thread { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
+.knot { width: 11px; height: 11px; border-radius: 50%; border: 1px solid rgba(190, 160, 255, 0.22); }
+.knot--on { border-color: transparent; }
+.knot--today { outline: 1px solid rgba(46, 230, 255, 0.5); outline-offset: 3px; }
+.notice { font-size: 13.5px; line-height: 1.6; font-weight: 300; display: flex; flex-direction: column; gap: 5px; }
+.notice li::before { content: '✧ '; color: var(--dmt-cyan); }
+.recent { font-size: 12px; display: flex; flex-direction: column; gap: 6px; margin-top: 4px; color: var(--dmt-ink-dim); }
 .recent li { display: flex; gap: 10px; flex-wrap: wrap; }
 
-.privacy { display: flex; gap: 10px; font-size: 12px; line-height: 1.5; align-items: flex-start; padding: 0 4px; }
-.privacy input { margin-top: 3px; accent-color: #a78bfa; }
+.privacy { display: flex; gap: 10px; font-size: 12px; line-height: 1.5; align-items: flex-start; padding: 0 4px; color: var(--dmt-ink-dim); }
+.privacy input { margin-top: 3px; accent-color: var(--dmt-violet); }
 </style>

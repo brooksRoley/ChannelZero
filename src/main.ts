@@ -5,6 +5,7 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import './index.css'
+import './styles/dmt.css'
 
 const app = createApp(App)
 const pinia = createPinia()

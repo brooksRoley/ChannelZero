@@ -40,7 +40,7 @@ describe('PracticeView loop', () => {
     // Before: "uneasy" (2) + a few words
     await w.findAll('.scale-step')[1].trigger('click')
     await w.find('textarea').setValue('anxious and busy')
-    await w.find('.btn--primary').trigger('click')
+    await w.find('.dmt-btn--prism').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.path).toBe('/zeromind')
     expect(usePracticeJourney().pending.value?.before.rating).toBe(2)
@@ -55,7 +55,7 @@ describe('PracticeView loop', () => {
     expect(w2.text()).toContain('What changed, if anything?')
     await w2.findAll('.scale-step')[4].trigger('click')
     await w2.find('textarea').setValue('calm and soft')
-    await w2.find('.btn--primary').trigger('click')
+    await w2.find('.dmt-btn--prism').trigger('click')
     await flushPromises()
 
     expect(w2.text()).toContain('You came in uneasy and left open.')

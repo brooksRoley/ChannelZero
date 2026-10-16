@@ -124,23 +124,15 @@ let avSynth: Tone.Synth | null = null
 let avVisualCallback: ((flash: boolean) => void) | null = null
 let avLoopId: number | undefined
 
-// Module 4: Alpha Wave (10 Hz binaural — calm focus, flow state)
-let alphaL: Tone.Oscillator | null = null
-let alphaR: Tone.Oscillator | null = null
-let alphaPanL: Tone.Panner | null = null
-let alphaPanR: Tone.Panner | null = null
-
-// Module 5: Theta Dream (6 Hz binaural — deep meditation, creativity)
-let thetaL: Tone.Oscillator | null = null
-let thetaR: Tone.Oscillator | null = null
-let thetaPanL: Tone.Panner | null = null
-let thetaPanR: Tone.Panner | null = null
-
-// Module 6: Schumann Resonance (7.83 Hz binaural — earth frequency, grounding)
-let schumannL: Tone.Oscillator | null = null
-let schumannR: Tone.Oscillator | null = null
-let schumannPanL: Tone.Panner | null = null
-let schumannPanR: Tone.Panner | null = null
+// Modules 4–6: binaural layers (alpha 10 Hz, theta 6 Hz, Schumann 7.83 Hz).
+// One Tone voice per active layer — same shape, different spec (BINAURAL_LAYERS).
+interface BinauralVoice {
+  left: Tone.Oscillator
+  right: Tone.Oscillator
+  panL: Tone.Panner
+  panR: Tone.Panner
+}
+const binauralVoices: Partial<Record<'alpha' | 'theta' | 'schumann', BinauralVoice>> = {}
 
 // Module 7: Solfeggio 528 Hz ("miracle tone" — restoration, DNA repair)
 let solOsc: Tone.Oscillator | null = null
@@ -158,9 +150,9 @@ let gammaFade: Tone.Gain | null = null
 // LFO frequency. Binaural layers are staggered so only one is dominant per
 // phase; the others act as harmonics rather than competing targets.
 interface LayerBalance {
-  alpha: number      // alphaL/R volume dB — dominant during induction/coherence
-  theta: number      // thetaL/R volume dB — dominant during deepen
-  schumann: number   // schumannL/R volume dB — dominant during joy
+  alpha: number      // alpha voice volume dB — dominant during induction/coherence
+  theta: number      // theta voice volume dB — dominant during deepen
+  schumann: number   // schumann voice volume dB — dominant during joy
   baselineVol: number // bmCarrier.volume additive offset (LFO adds to this)
   baselineHz: number  // bmPulse.frequency — ramps down with session depth
 }
@@ -177,17 +169,9 @@ const PHASE_BALANCE: Partial<Record<TrancePhase, LayerBalance>> = {
 function applyPhaseLayerBalance(p: TrancePhase, ramp = 6) {
   const b = PHASE_BALANCE[p]
   if (!b) return
-  if (alphaL) {
-    alphaL.volume.rampTo(b.alpha, ramp)
-    alphaR!.volume.rampTo(b.alpha, ramp)
-  }
-  if (thetaL) {
-    thetaL.volume.rampTo(b.theta, ramp)
-    thetaR!.volume.rampTo(b.theta, ramp)
-  }
-  if (schumannL) {
-    schumannL.volume.rampTo(b.schumann, ramp)
-    schumannR!.volume.rampTo(b.schumann, ramp)
+  for (const [id, v] of Object.entries(binauralVoices) as [keyof typeof binauralVoices, BinauralVoice][]) {
+    v.left.volume.rampTo(b[id], ramp)
+    v.right.volume.rampTo(b[id], ramp)
   }
   if (bmCarrier) bmCarrier.volume.rampTo(b.baselineVol, ramp)
   if (bmPulse)   bmPulse.frequency.rampTo(b.baselineHz, ramp)
@@ -320,80 +304,44 @@ export const BINAURAL_LAYERS: Record<BinauralLayerSpec['id'], BinauralLayerSpec>
   schumann: { id: 'schumann', label: 'Schumann Resonance', leftHz: 246.085, rightHz: 253.915, targetBand: 'theta' },
 }
 
-// ── Module 4: Alpha Wave (10 Hz binaural) ──
-// Left 195 Hz / Right 205 Hz → 10 Hz perceived beat (alpha band)
-// Alpha entrainment promotes relaxed alertness and flow state
-async function startAlphaWave() {
+// ── Modules 4–6: binaural layers ──
+// alpha    195 / 205 Hz     → 10 Hz   relaxed alertness, flow
+// theta    177 / 183 Hz     → 6 Hz    deep meditation, hypnagogic imagery
+// schumann 246.085 / 253.915 → 7.83 Hz earth resonance, grounding
+const binauralActive = { alpha: alphaWaveActive, theta: thetaDreamActive, schumann: schumannActive }
+
+async function startBinauralLayer(id: BinauralLayerSpec['id']) {
   await Tone.start()
-  if (alphaL) return
-  alphaPanL = new Tone.Panner(-1).toDestination()
-  alphaPanR = new Tone.Panner(1).toDestination()
-  alphaL = new Tone.Oscillator(BINAURAL_LAYERS.alpha.leftHz, 'sine').connect(alphaPanL)
-  alphaR = new Tone.Oscillator(BINAURAL_LAYERS.alpha.rightHz, 'sine').connect(alphaPanR)
-  alphaL.volume.value = phaseVol('alpha')
-  alphaR.volume.value = phaseVol('alpha')
-  alphaL.start()
-  alphaR.start()
-  alphaWaveActive.value = true
+  if (binauralVoices[id]) return
+  const spec = BINAURAL_LAYERS[id]
+  const panL = new Tone.Panner(-1).toDestination()
+  const panR = new Tone.Panner(1).toDestination()
+  const left = new Tone.Oscillator(spec.leftHz, 'sine').connect(panL)
+  const right = new Tone.Oscillator(spec.rightHz, 'sine').connect(panR)
+  left.volume.value = right.volume.value = phaseVol(id)
+  left.start()
+  right.start()
+  binauralVoices[id] = { left, right, panL, panR }
+  binauralActive[id].value = true
 }
 
-function stopAlphaWave() {
-  alphaL?.stop(); alphaL?.dispose(); alphaL = null
-  alphaR?.stop(); alphaR?.dispose(); alphaR = null
-  alphaPanL?.dispose(); alphaPanL = null
-  alphaPanR?.dispose(); alphaPanR = null
-  alphaWaveActive.value = false
+function stopBinauralLayer(id: BinauralLayerSpec['id']) {
+  const v = binauralVoices[id]
+  if (v) {
+    v.left.stop(); v.left.dispose()
+    v.right.stop(); v.right.dispose()
+    v.panL.dispose(); v.panR.dispose()
+    delete binauralVoices[id]
+  }
+  binauralActive[id].value = false
 }
 
-// ── Module 5: Theta Dream (6 Hz binaural) ──
-// Left 177 Hz / Right 183 Hz → 6 Hz perceived beat (theta band)
-// Theta entrainment promotes deep meditation, creativity, hypnagogic imagery
-async function startThetaDream() {
-  await Tone.start()
-  if (thetaL) return
-  thetaPanL = new Tone.Panner(-1).toDestination()
-  thetaPanR = new Tone.Panner(1).toDestination()
-  thetaL = new Tone.Oscillator(BINAURAL_LAYERS.theta.leftHz, 'sine').connect(thetaPanL)
-  thetaR = new Tone.Oscillator(BINAURAL_LAYERS.theta.rightHz, 'sine').connect(thetaPanR)
-  thetaL.volume.value = phaseVol('theta')
-  thetaR.volume.value = phaseVol('theta')
-  thetaL.start()
-  thetaR.start()
-  thetaDreamActive.value = true
-}
-
-function stopThetaDream() {
-  thetaL?.stop(); thetaL?.dispose(); thetaL = null
-  thetaR?.stop(); thetaR?.dispose(); thetaR = null
-  thetaPanL?.dispose(); thetaPanL = null
-  thetaPanR?.dispose(); thetaPanR = null
-  thetaDreamActive.value = false
-}
-
-// ── Module 6: Schumann Resonance (7.83 Hz binaural) ──
-// Left 246.085 Hz / Right 253.915 Hz → 7.83 Hz perceived beat
-// Earth's electromagnetic resonant frequency — grounding, coherence
-async function startSchumann() {
-  await Tone.start()
-  if (schumannL) return
-  schumannPanL = new Tone.Panner(-1).toDestination()
-  schumannPanR = new Tone.Panner(1).toDestination()
-  schumannL = new Tone.Oscillator(BINAURAL_LAYERS.schumann.leftHz, 'sine').connect(schumannPanL)
-  schumannR = new Tone.Oscillator(BINAURAL_LAYERS.schumann.rightHz, 'sine').connect(schumannPanR)
-  schumannL.volume.value = phaseVol('schumann')
-  schumannR.volume.value = phaseVol('schumann')
-  schumannL.start()
-  schumannR.start()
-  schumannActive.value = true
-}
-
-function stopSchumann() {
-  schumannL?.stop(); schumannL?.dispose(); schumannL = null
-  schumannR?.stop(); schumannR?.dispose(); schumannR = null
-  schumannPanL?.dispose(); schumannPanL = null
-  schumannPanR?.dispose(); schumannPanR = null
-  schumannActive.value = false
-}
+const startAlphaWave = () => startBinauralLayer('alpha')
+const stopAlphaWave = () => stopBinauralLayer('alpha')
+const startThetaDream = () => startBinauralLayer('theta')
+const stopThetaDream = () => stopBinauralLayer('theta')
+const startSchumann = () => startBinauralLayer('schumann')
+const stopSchumann = () => stopBinauralLayer('schumann')
 
 // ── Module 7: Solfeggio 528 Hz ──
 // Pure 528 Hz tone with gentle 1 Hz amplitude tremolo

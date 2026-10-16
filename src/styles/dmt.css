@@ -1,0 +1,242 @@
+/*
+ * DMT — the hyperspace theme.
+ *
+ * Kaleidoscopic, iridescent, self-similar: a violet void, prismatic edges,
+ * a mandala turning slowly behind the glass. Opt in per surface with
+ * `.dmt-field` (the background) and the `.dmt-*` pieces inside it.
+ *
+ * Flash safety: nothing here flickers. Hue and rotation drift over 20–90 s
+ * cycles and the "breath" is 6 s (0.17 Hz) — far under the WCAG 3 flashes/s
+ * limit — and every animation stops under prefers-reduced-motion.
+ */
+
+:root {
+  --dmt-void: #07040f;
+  --dmt-deep: #120a24;
+  --dmt-ink: #f3ecff;
+  --dmt-ink-dim: rgba(243, 236, 255, 0.62);
+  --dmt-ink-faint: rgba(243, 236, 255, 0.38);
+
+  --dmt-magenta: #ff3cd8;
+  --dmt-violet: #9d6bff;
+  --dmt-cyan: #2ee6ff;
+  --dmt-lime: #c4ff4d;
+  --dmt-amber: #ffb84d;
+
+  --dmt-prism: conic-gradient(
+    from var(--dmt-angle, 0deg),
+    var(--dmt-magenta), var(--dmt-violet), var(--dmt-cyan),
+    var(--dmt-lime), var(--dmt-amber), var(--dmt-magenta)
+  );
+  --dmt-prism-linear: linear-gradient(
+    100deg,
+    var(--dmt-magenta) 0%, var(--dmt-violet) 25%, var(--dmt-cyan) 50%,
+    var(--dmt-lime) 75%, var(--dmt-amber) 100%
+  );
+
+  --dmt-glass: rgba(18, 10, 36, 0.58);
+  --dmt-glass-hi: rgba(40, 22, 78, 0.5);
+  --dmt-edge: rgba(190, 160, 255, 0.16);
+  --dmt-radius: 18px;
+}
+
+/* Lets the conic border actually rotate (falls back to static where unsupported). */
+@property --dmt-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+/* ── Field: the background layer ─────────────────────────────── */
+
+.dmt-field {
+  position: relative;
+  isolation: isolate;
+  min-height: 100%;
+  /* Transparent: the void is painted by ::before across the whole viewport,
+     so a width-capped page column never shows as a darker box. */
+  background: transparent;
+  color: var(--dmt-ink);
+}
+
+/* Mandala: repeating conic petals, slowly turning and hue-drifting. */
+.dmt-field::before {
+  content: '';
+  position: fixed;
+  inset: -40vmax;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    repeating-conic-gradient(
+      from 0deg at 50% 45%,
+      rgba(255, 60, 216, 0.10) 0deg 6deg,
+      rgba(46, 230, 255, 0.07) 6deg 12deg,
+      rgba(196, 255, 77, 0.05) 12deg 15deg,
+      transparent 15deg 30deg
+    ),
+    radial-gradient(circle at 50% 45%, rgba(157, 107, 255, 0.35), transparent 38%),
+    radial-gradient(circle at 18% 80%, rgba(255, 60, 216, 0.18), transparent 40%),
+    radial-gradient(circle at 85% 15%, rgba(46, 230, 255, 0.16), transparent 42%),
+    var(--dmt-void);
+  animation: dmt-turn 90s linear infinite, dmt-hue 40s ease-in-out infinite alternate;
+  filter: blur(1px) saturate(1.2);
+}
+
+/* Hyperspace lattice + vignette, so text always sits on calm darkness. */
+.dmt-field::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 50% 40%, transparent 0%, rgba(7, 4, 15, 0.55) 55%, var(--dmt-void) 92%),
+    repeating-linear-gradient(60deg, rgba(190, 160, 255, 0.045) 0 1px, transparent 1px 46px),
+    repeating-linear-gradient(-60deg, rgba(190, 160, 255, 0.045) 0 1px, transparent 1px 46px),
+    repeating-linear-gradient(0deg, rgba(190, 160, 255, 0.03) 0 1px, transparent 1px 40px);
+}
+
+/* ── Card: glass with a slowly rotating holographic edge ─────── */
+
+.dmt-card {
+  position: relative;
+  border-radius: var(--dmt-radius);
+  background:
+    linear-gradient(160deg, var(--dmt-glass-hi), var(--dmt-glass) 60%),
+    var(--dmt-glass);
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  box-shadow:
+    0 0 0 1px var(--dmt-edge) inset,
+    0 18px 60px -24px rgba(157, 107, 255, 0.45),
+    0 0 80px -40px rgba(46, 230, 255, 0.35);
+}
+
+/* Prismatic 1px border, drawn as a masked conic ring. */
+.dmt-card--prism::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: var(--dmt-prism);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.75;
+  pointer-events: none;
+  animation: dmt-spin-angle 24s linear infinite;
+}
+
+/* ── Type ────────────────────────────────────────────────────── */
+
+.dmt-title {
+  background: var(--dmt-prism-linear);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  /* Static chromatic fringe — a still aberration, never a flicker. */
+  filter: drop-shadow(-1px 0 0 rgba(255, 60, 216, 0.35)) drop-shadow(1px 0 0 rgba(46, 230, 255, 0.35));
+  animation: dmt-shimmer 20s ease-in-out infinite alternate;
+}
+
+.dmt-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--dmt-cyan), var(--dmt-violet), var(--dmt-magenta));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ── Controls ────────────────────────────────────────────────── */
+
+.dmt-btn {
+  position: relative;
+  border-radius: 999px;
+  padding: 9px 18px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--dmt-ink);
+  background: rgba(157, 107, 255, 0.08);
+  border: 1px solid var(--dmt-edge);
+  cursor: pointer;
+  transition: box-shadow 0.4s ease, background 0.4s ease, border-color 0.4s ease;
+}
+.dmt-btn:hover:not(:disabled) {
+  background: rgba(157, 107, 255, 0.16);
+  border-color: rgba(190, 160, 255, 0.4);
+  box-shadow: 0 0 24px -6px rgba(255, 60, 216, 0.55), 0 0 40px -12px rgba(46, 230, 255, 0.5);
+}
+.dmt-btn:disabled { opacity: 0.4; cursor: default; }
+
+.dmt-btn--prism {
+  background:
+    linear-gradient(var(--dmt-deep), var(--dmt-deep)) padding-box,
+    var(--dmt-prism) border-box;
+  border: 1px solid transparent;
+  animation: dmt-spin-angle 12s linear infinite;
+}
+.dmt-btn--prism:hover:not(:disabled) {
+  background:
+    linear-gradient(rgba(40, 22, 78, 0.95), rgba(40, 22, 78, 0.95)) padding-box,
+    var(--dmt-prism) border-box;
+}
+
+.dmt-chip {
+  border-radius: 12px;
+  border: 1px solid var(--dmt-edge);
+  background: rgba(18, 10, 36, 0.5);
+  color: var(--dmt-ink-dim);
+  transition: all 0.35s ease;
+}
+.dmt-chip--on {
+  color: var(--dmt-ink);
+  border-color: transparent;
+  background:
+    linear-gradient(rgba(40, 22, 78, 0.92), rgba(40, 22, 78, 0.92)) padding-box,
+    var(--dmt-prism) border-box;
+  box-shadow: 0 0 22px -8px rgba(157, 107, 255, 0.8);
+}
+
+.dmt-input {
+  background: rgba(7, 4, 15, 0.45);
+  border: 1px solid var(--dmt-edge);
+  border-radius: 12px;
+  color: var(--dmt-ink);
+  outline: none;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.dmt-input:focus {
+  border-color: rgba(46, 230, 255, 0.5);
+  box-shadow: 0 0 0 3px rgba(46, 230, 255, 0.08), 0 0 24px -10px rgba(46, 230, 255, 0.6);
+}
+.dmt-input::placeholder { color: var(--dmt-ink-faint); }
+
+/* A breathing jewel — 6 s cycle. */
+.dmt-jewel {
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff 0%, var(--dmt-cyan) 25%, var(--dmt-violet) 60%, var(--dmt-magenta) 100%);
+  box-shadow: 0 0 12px rgba(157, 107, 255, 0.8);
+  animation: dmt-breathe 6s ease-in-out infinite;
+}
+
+/* ── Motion ──────────────────────────────────────────────────── */
+
+@keyframes dmt-turn { to { transform: rotate(360deg); } }
+@keyframes dmt-hue { from { filter: blur(1px) saturate(1.2) hue-rotate(0deg); } to { filter: blur(1px) saturate(1.2) hue-rotate(70deg); } }
+@keyframes dmt-spin-angle { to { --dmt-angle: 360deg; } }
+@keyframes dmt-shimmer { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
+@keyframes dmt-breathe { 0%, 100% { transform: scale(0.85); opacity: 0.65; } 50% { transform: scale(1.1); opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .dmt-field::before,
+  .dmt-card--prism::before,
+  .dmt-title,
+  .dmt-btn--prism,
+  .dmt-jewel {
+    animation: none !important;
+  }
+}

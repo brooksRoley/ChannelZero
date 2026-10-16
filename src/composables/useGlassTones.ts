@@ -1,5 +1,6 @@
 import { ref, readonly } from 'vue'
 import * as Tone from 'tone'
+import { createBinauralPair, earFrequencies } from '@/audio/core'
 
 /**
  * Tone.js synthesis presets designed to sit beneath speech.
@@ -79,37 +80,22 @@ function createWarmDrone(): PresetEngine {
 /** 6 Hz theta binaural beat — calms during speech, opens in silence. */
 function createBinauralTheta(): PresetEngine {
   const ctx = Tone.getContext().rawContext as AudioContext
-  const merger = ctx.createChannelMerger(2)
-  const oscL = ctx.createOscillator()
-  const oscR = ctx.createOscillator()
-  const gainL = ctx.createGain()
-  const gainR = ctx.createGain()
+  const pair = createBinauralPair(ctx, earFrequencies(200, 6)) // 197 / 203 Hz
   const out = ctx.createGain()
-
-  oscL.type = oscR.type = 'sine'
-  oscL.frequency.value = 197   // 200 − 6/2
-  oscR.frequency.value = 203   // 200 + 6/2
-  gainL.gain.value = gainR.gain.value = 1
   out.gain.value = 0
-
-  oscL.connect(gainL).connect(merger, 0, 0)
-  oscR.connect(gainR).connect(merger, 0, 1)
-  merger.connect(out)
+  pair.output.connect(out)
   out.connect(getMaster())
 
   return {
-    start() { oscL.start(); oscR.start() },
-    stop()  { oscL.stop(); oscR.stop() },
+    start() { pair.start() },
+    stop()  { pair.stop() },
     update(env, speaking) {
       const now = ctx.currentTime
       out.gain.linearRampToValueAtTime(speaking ? 0.06 : 0.14, now + 0.06)
     },
     dispose() {
-      try { oscL.stop() } catch { /* already stopped */ }
-      try { oscR.stop() } catch { /* already stopped */ }
-      oscL.disconnect(); oscR.disconnect()
-      gainL.disconnect(); gainR.disconnect()
-      merger.disconnect(); out.disconnect()
+      pair.dispose()
+      out.disconnect()
     },
   }
 }

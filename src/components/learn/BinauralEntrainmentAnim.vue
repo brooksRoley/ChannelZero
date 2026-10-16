@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { createBinauralPair, type BinauralPair } from '@/audio/core'
 
 const carrier = ref(200)
 const beat = ref(10)
@@ -10,41 +11,27 @@ const leftFreq = computed(() => carrier.value)
 const rightFreq = computed(() => carrier.value + beat.value)
 
 let ctx: AudioContext | null = null
-let oscL: OscillatorNode | null = null
-let oscR: OscillatorNode | null = null
-let gainL: GainNode | null = null
-let gainR: GainNode | null = null
+let pair: BinauralPair | null = null
 let raf = 0
 let t0 = 0
 
 function start() {
   if (playing.value) return
   ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
-  const merger = ctx.createChannelMerger(2)
   const out = ctx.createGain()
   out.gain.value = 0.08
-  oscL = ctx.createOscillator()
-  oscR = ctx.createOscillator()
-  gainL = ctx.createGain()
-  gainR = ctx.createGain()
-  gainL.gain.value = 1
-  gainR.gain.value = 1
-  oscL.frequency.value = leftFreq.value
-  oscR.frequency.value = rightFreq.value
-  oscL.connect(gainL).connect(merger, 0, 0)
-  oscR.connect(gainR).connect(merger, 0, 1)
-  merger.connect(out).connect(ctx.destination)
-  oscL.start()
-  oscR.start()
+  out.connect(ctx.destination)
+  pair = createBinauralPair(ctx, { leftHz: leftFreq.value, rightHz: rightFreq.value })
+  pair.output.connect(out)
+  pair.start()
   playing.value = true
 }
 
 function stop() {
   if (!playing.value) return
-  oscL?.stop()
-  oscR?.stop()
+  pair?.dispose()
   ctx?.close()
-  ctx = null; oscL = null; oscR = null; gainL = null; gainR = null
+  ctx = null; pair = null
   playing.value = false
 }
 
@@ -53,8 +40,7 @@ function toggle() {
 }
 
 watch([leftFreq, rightFreq], ([l, r]) => {
-  if (oscL && ctx) oscL.frequency.setTargetAtTime(l, ctx.currentTime, 0.05)
-  if (oscR && ctx) oscR.frequency.setTargetAtTime(r, ctx.currentTime, 0.05)
+  pair?.setEars(l, r) // drag each ear independently
 })
 
 function draw() {

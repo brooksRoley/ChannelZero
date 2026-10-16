@@ -1,4 +1,5 @@
 import { ref, reactive, computed, readonly } from 'vue'
+import { createBinauralPair, earFrequencies, type BinauralPair } from '@/audio/core'
 
 export type EntrainPhase = 'idle' | 'engage' | 'relax' | 'theta' | 'hold' | 'integrate' | 'complete'
 
@@ -44,8 +45,7 @@ export function useAdaptiveEntrain() {
 
   // ── Audio (Web Audio API binaural pair) ──
   let actx: AudioContext | null = null
-  let oscL: OscillatorNode | null = null
-  let oscR: OscillatorNode | null = null
+  let pair: BinauralPair | null = null
   let master: GainNode | null = null
 
   // ── Internals ──
@@ -64,52 +64,32 @@ export function useAdaptiveEntrain() {
   // ── Audio lifecycle ──
   function initAudio() {
     actx = new AudioContext()
-    const merger = actx.createChannelMerger(2)
     master = actx.createGain()
     master.gain.value = 0
     master.gain.setTargetAtTime(0.12, actx.currentTime, 1)
-    merger.connect(master)
     master.connect(actx.destination)
 
-    const gL = actx.createGain()
-    const gR = actx.createGain()
-    gL.gain.value = 1
-    gR.gain.value = 1
-
-    oscL = actx.createOscillator()
-    oscL.type = 'sine'
-    oscL.frequency.value = CARRIER - currentHz.value / 2
-    oscL.connect(gL)
-    gL.connect(merger, 0, 0)
-
-    oscR = actx.createOscillator()
-    oscR.type = 'sine'
-    oscR.frequency.value = CARRIER + currentHz.value / 2
-    oscR.connect(gR)
-    gR.connect(merger, 0, 1)
-
-    oscL.start()
-    oscR.start()
+    pair = createBinauralPair(actx, earFrequencies(CARRIER, currentHz.value))
+    pair.output.connect(master)
+    pair.start()
   }
 
   function setFreq(hz: number) {
-    if (!actx || !oscL || !oscR) return
-    const t = actx.currentTime
-    oscL.frequency.setTargetAtTime(CARRIER - hz / 2, t, 0.3)
-    oscR.frequency.setTargetAtTime(CARRIER + hz / 2, t, 0.3)
+    if (!actx || !pair) return
+    // Eases toward the target — this journey follows the person, it never snaps.
+    pair.setBeat(hz, CARRIER, { kind: 'target', timeConstant: 0.3 })
   }
 
   function destroyAudio() {
     if (master && actx) {
       try { master.gain.setTargetAtTime(0, actx.currentTime, 0.3) } catch { /* noop */ }
     }
-    const refs = { oscL, oscR, actx }
+    const refs = { pair, actx }
     setTimeout(() => {
-      try { refs.oscL?.stop() } catch { /* noop */ }
-      try { refs.oscR?.stop() } catch { /* noop */ }
+      refs.pair?.dispose()
       try { refs.actx?.close() } catch { /* noop */ }
     }, 500)
-    oscL = oscR = null
+    pair = null
     master = null
     actx = null
   }

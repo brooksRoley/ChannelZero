@@ -1,45 +1,17 @@
 import { ref, readonly } from 'vue'
 
-/**
- * Above this beat rate binaural beats are only weakly perceived, so the engine
- * adds an isochronic pulse: both ears' carriers are amplitude-modulated at the
- * beat rate, which is audible at any frequency.
- */
-export const ISOCHRONIC_ABOVE_HZ = 30
+import {
+  createBinauralPair, pinkNoiseBuffer, isochronicDepth, earFrequencies, type BinauralPair,
+} from '@/audio/core'
 
-/** AM depth (0–1) applied when the isochronic pulse is engaged. */
-export const ISOCHRONIC_DEPTH = 0.8
+// The isochronic rule lives in the shared audio core; re-exported for callers.
+export { ISOCHRONIC_ABOVE_HZ, ISOCHRONIC_DEPTH, isochronicDepth } from '@/audio/core'
 
 export type TextureId = 'noise' | 'pad' | 'shimmer'
 export type TextureLevels = Record<TextureId, number> // 0..1 each
 
 /** Peak gain of each texture at level 1, relative to the binaural pair. */
 const TEXTURE_GAIN: Record<TextureId, number> = { noise: 0.35, pad: 0.45, shimmer: 0.08 }
-
-/** One loop of pink noise (Paul Kellet's filter) — mono, `seconds` long. */
-function pinkNoiseBuffer(ctx: AudioContext, seconds = 4): AudioBuffer {
-  const len = Math.floor(ctx.sampleRate * seconds)
-  const buf = ctx.createBuffer(1, len, ctx.sampleRate)
-  const d = buf.getChannelData(0)
-  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0
-  for (let i = 0; i < len; i++) {
-    const w = Math.random() * 2 - 1
-    b0 = 0.99886 * b0 + w * 0.0555179
-    b1 = 0.99332 * b1 + w * 0.0750759
-    b2 = 0.969 * b2 + w * 0.153852
-    b3 = 0.8665 * b3 + w * 0.3104856
-    b4 = 0.55 * b4 + w * 0.5329522
-    b5 = -0.7616 * b5 - w * 0.016898
-    d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11
-    b6 = w * 0.115926
-  }
-  return buf
-}
-
-/** PURE: pulse depth for a beat rate (0 = pure binaural). */
-export function isochronicDepth(beatHz: number): number {
-  return beatHz > ISOCHRONIC_ABOVE_HZ ? ISOCHRONIC_DEPTH : 0
-}
 
 /**
  * Raw Web Audio API binaural beat engine.
@@ -53,10 +25,8 @@ export function isochronicDepth(beatHz: number): number {
  */
 class BinauralEngine {
   ctx: AudioContext | null = null
-  oscLeft: OscillatorNode | null = null
-  oscRight: OscillatorNode | null = null
+  pair: BinauralPair | null = null
   masterGain: GainNode | null = null
-  merger: ChannelMergerNode | null = null
   /** Isochronic AM stage: gain = (1 - d/2) + (d/2)·sin(2π·beat·t). */
   pulseGain: GainNode | null = null
   pulseLfo: OscillatorNode | null = null
@@ -94,25 +64,7 @@ class BinauralEngine {
     this.analyser = this.ctx.createAnalyser()
     this.analyser.fftSize = 256
 
-    this.merger = this.ctx.createChannelMerger(2)
-
-    // Left ear oscillator
-    this.oscLeft = this.ctx.createOscillator()
-    const gainL = this.ctx.createGain()
-    this.oscLeft.type = 'sine'
-    this.oscLeft.frequency.value = this.carrier - this.beatFreq / 2
-    gainL.gain.value = 1
-    this.oscLeft.connect(gainL)
-    gainL.connect(this.merger, 0, 0)
-
-    // Right ear oscillator
-    this.oscRight = this.ctx.createOscillator()
-    const gainR = this.ctx.createGain()
-    this.oscRight.type = 'sine'
-    this.oscRight.frequency.value = this.carrier + this.beatFreq / 2
-    gainR.gain.value = 1
-    this.oscRight.connect(gainR)
-    gainR.connect(this.merger, 0, 1)
+    this.pair = createBinauralPair(this.ctx, earFrequencies(this.carrier, this.beatFreq))
 
     // Isochronic stage between the stereo pair and the master volume. Starts
     // flat; only an explicit setBeat engages it (callers init at the 40 Hz
@@ -128,14 +80,13 @@ class BinauralEngine {
     this.pulseLfo.connect(this.pulseDepth)
     this.pulseDepth.connect(this.pulseGain.gain)
 
-    this.merger.connect(this.pulseGain)
+    this.pair.output.connect(this.pulseGain)
     this.pulseGain.connect(this.masterGain)
     this.buildTextures(this.ctx)
     this.masterGain.connect(this.analyser)
     this.analyser.connect(this.ctx.destination)
 
-    this.oscLeft.start()
-    this.oscRight.start()
+    this.pair.start()
     this.pulseLfo.start()
     for (const src of this.textureSources) src.start()
     this.started = true
@@ -240,17 +191,11 @@ class BinauralEngine {
   }
 
   setBeat(beatHz: number, carrierHz?: number, rampTime = 1.5) {
-    if (!this.started || !this.ctx || !this.oscLeft || !this.oscRight) return
+    if (!this.started || !this.ctx || !this.pair) return
     const now = this.ctx.currentTime
     this.carrier = carrierHz ?? this.carrier
     this.beatFreq = beatHz
-
-    this.oscLeft.frequency.cancelScheduledValues(now)
-    this.oscRight.frequency.cancelScheduledValues(now)
-    this.oscLeft.frequency.setValueAtTime(this.oscLeft.frequency.value, now)
-    this.oscRight.frequency.setValueAtTime(this.oscRight.frequency.value, now)
-    this.oscLeft.frequency.linearRampToValueAtTime(this.carrier - beatHz / 2, now + rampTime)
-    this.oscRight.frequency.linearRampToValueAtTime(this.carrier + beatHz / 2, now + rampTime)
+    this.pair.setBeat(beatHz, this.carrier, { kind: 'linear', seconds: rampTime })
 
     // Pad and shimmer follow the carrier so the bed stays consonant with the beat.
     const follow = (oscs: OscillatorNode[], ratios: number[]) => oscs.forEach((o, i) => {
@@ -291,8 +236,7 @@ class BinauralEngine {
   }
 
   destroy() {
-    try { this.oscLeft?.stop() } catch { /* already stopped */ }
-    try { this.oscRight?.stop() } catch { /* already stopped */ }
+    this.pair?.stop()
     try { this.pulseLfo?.stop() } catch { /* already stopped */ }
     for (const src of this.textureSources) {
       try { src.stop() } catch { /* already stopped */ }
@@ -306,10 +250,8 @@ class BinauralEngine {
     }
     this.started = false
     this.ctx = null
-    this.oscLeft = null
-    this.oscRight = null
+    this.pair = null
     this.masterGain = null
-    this.merger = null
     this.pulseGain = null
     this.pulseLfo = null
     this.pulseDepth = null

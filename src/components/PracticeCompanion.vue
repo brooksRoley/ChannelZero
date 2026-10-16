@@ -88,7 +88,7 @@ onUnmounted(clearTimer)
 <template>
   <div v-if="pending && method && route.path !== '/practice'" class="companion" aria-live="polite">
     <Transition name="drift">
-      <form v-if="prompt" class="card" @submit.prevent="send">
+      <form v-if="prompt" class="card dmt-card dmt-card--prism" @submit.prevent="send">
         <p class="card-prompt">{{ prompt }}</p>
         <input
           v-model="answer"
@@ -106,14 +106,14 @@ onUnmounted(clearTimer)
     </Transition>
 
     <Transition name="drift">
-      <p v-if="mirror && !prompt" class="mirror" :class="{ 'mirror--care': mirror.tone === 'unsafe' }">
-        <span class="mirror-tone">{{ mirror.tone }}</span>
+      <p v-if="mirror && !prompt" class="mirror dmt-card" :class="{ 'mirror--care': mirror.tone === 'unsafe' }">
+        <span class="mirror-tone dmt-eyebrow">{{ mirror.tone }}</span>
         {{ mirror.reflection }}
       </p>
     </Transition>
 
-    <div class="pill">
-      <span class="pill-dot" :class="{ 'pill-dot--done': ended }" aria-hidden="true" />
+    <div class="pill dmt-card">
+      <span class="pill-dot dmt-jewel" :class="{ 'pill-dot--done': ended }" aria-hidden="true" />
       <span class="pill-name">{{ method.name }}</span>
       <template v-if="inTool">
         <button v-if="!prompt" class="link" @click="ask()">note</button>
@@ -127,6 +127,7 @@ onUnmounted(clearTimer)
 </template>
 
 <style scoped>
+/* Look comes from src/styles/dmt.css; layout only here. */
 .companion {
   position: fixed;
   left: 16px;
@@ -138,6 +139,7 @@ onUnmounted(clearTimer)
   gap: 8px;
   max-width: min(340px, calc(100vw - 32px));
   pointer-events: none;
+  color: var(--dmt-ink);
 }
 .companion > * { pointer-events: auto; }
 
@@ -145,73 +147,51 @@ onUnmounted(clearTimer)
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 12px;
+  padding: 7px 14px;
   border-radius: 999px;
-  background: rgba(10, 10, 14, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(12px);
   font-size: 11px;
-  letter-spacing: 0.08em;
-  color: rgba(226, 232, 240, 0.6);
+  letter-spacing: 0.1em;
+  color: var(--dmt-ink-dim);
 }
-.pill-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: rgba(167, 139, 250, 0.7);
-  animation: breathe 6s ease-in-out infinite;
-}
-.pill-dot--done { background: rgba(52, 211, 153, 0.8); animation: none; }
+.pill-dot { width: 7px; height: 7px; }
+.pill-dot--done { animation: none; background: var(--dmt-lime); box-shadow: 0 0 10px var(--dmt-lime); }
 .pill-name { text-transform: lowercase; }
 
-.card, .mirror {
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(10, 10, 14, 0.78);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(14px);
-  color: #e2e8f0;
-}
+.card, .mirror { padding: 13px 15px; }
 .card { width: 100%; }
-.card-prompt { font-size: 13px; font-weight: 300; margin-bottom: 8px; color: rgba(226, 232, 240, 0.85); }
+.card-prompt { font-size: 13.5px; font-weight: 300; margin-bottom: 9px; }
 .card-input {
   width: 100%;
   background: transparent;
   border: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  border-bottom: 1px solid rgba(190, 160, 255, 0.25);
   padding: 4px 0;
   font-size: 14px;
-  color: #e2e8f0;
+  color: var(--dmt-ink);
   outline: none;
 }
-.card-input:focus { border-bottom-color: rgba(167, 139, 250, 0.6); }
-.card-row { display: flex; justify-content: space-between; margin-top: 8px; }
+.card-input:focus { border-bottom-color: var(--dmt-cyan); }
+.card-input::placeholder { color: var(--dmt-ink-faint); }
+.card-row { display: flex; justify-content: space-between; margin-top: 9px; }
 
-.mirror { font-size: 12.5px; line-height: 1.5; font-weight: 300; color: rgba(226, 232, 240, 0.8); }
-.mirror--care { border-color: rgba(251, 191, 36, 0.4); }
-.mirror-tone {
-  display: block;
-  font-size: 9px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: rgba(167, 139, 250, 0.8);
-  margin-bottom: 4px;
-}
+.mirror { font-size: 12.5px; line-height: 1.55; font-weight: 300; }
+.mirror--care { box-shadow: 0 0 0 1px rgba(255, 184, 77, 0.5) inset; }
+.mirror-tone { display: block; margin-bottom: 4px; }
 
 .link {
   background: none;
   border: none;
   padding: 0;
   font-size: 11px;
-  letter-spacing: 0.08em;
-  color: rgba(226, 232, 240, 0.4);
+  letter-spacing: 0.1em;
+  color: var(--dmt-ink-faint);
   cursor: pointer;
+  transition: color 0.3s, text-shadow 0.3s;
 }
-.link:hover { color: rgba(226, 232, 240, 0.8); }
+.link:hover { color: var(--dmt-ink); text-shadow: 0 0 12px rgba(46, 230, 255, 0.7); }
 .link:disabled { opacity: 0.3; cursor: default; }
-.link--on { color: rgba(167, 139, 250, 0.9); }
+.link--on { color: var(--dmt-cyan); }
 
-@keyframes breathe { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
-.drift-enter-active, .drift-leave-active { transition: opacity 0.6s ease, transform 0.6s ease; }
-.drift-enter-from, .drift-leave-to { opacity: 0; transform: translateY(6px); }
+.drift-enter-active, .drift-leave-active { transition: opacity 0.7s ease, transform 0.7s ease, filter 0.7s ease; }
+.drift-enter-from, .drift-leave-to { opacity: 0; transform: translateY(8px); filter: blur(4px); }
 </style>
