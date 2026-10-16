@@ -3,7 +3,7 @@ import { ref, watch, onMounted, onUnmounted } from 'vue'
 import * as Tone from 'tone'
 import { useStoryStore } from '@/composables/useStoryStore'
 import { useTranceEngine } from '@/composables/useTranceEngine'
-import { useAnalytics } from '@/composables/useAnalytics'
+import { useAnalytics, logPublicEvent } from '@/composables/useAnalytics'
 import PostTranceOverlay from '@/components/PostTranceOverlay.vue'
 import { usePracticeLog } from '@/composables/usePracticeLog'
 
@@ -26,6 +26,7 @@ watch(completedSession, (data) => {
   if (data) {
     showOverlay.value = true
     logPractice('zeromind', data.sessionDurationMs)
+    logPublicEvent('public_session_completed', 'zeromind', data.sessionDurationMs)
     logEvent('zeromind_session_completed', {
       coherence: data.coherence,
       sync_count: data.syncCount,
@@ -646,6 +647,7 @@ watch([phase, sessionActive], () => {
 
 onMounted(() => {
   logEvent('zeromind_session_started')
+  logPublicEvent('public_visit', 'zeromind')
   resize()
   initParticles(MODES[modeIndex.value])
   rafId = requestAnimationFrame(tick)

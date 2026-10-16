@@ -370,3 +370,45 @@ class TestAdminEventStats:
         with patch("app.analytics.router.get_conn", make_get_conn(conn)):
             r = TestClient(_make_app(admin=True)).get("/api/analytics/event-stats")
         assert r.json()["events"] == []
+
+
+# ── Public (anonymous) events — E3 ───────────────────────────────────────────
+
+class TestPublicEvent:
+    def _post(self, conn, **over):
+        body = {"event": "public_visit", "route": "spiral", "anon_id": "abcdef12-3456"}
+        body.update(over)
+        # No auth override needed: the endpoint must not require a user.
+        app = FastAPI()
+        app.include_router(analytics_router, prefix="/api/analytics")
+        with patch("app.analytics.router.get_conn", make_get_conn(conn)):
+            return TestClient(app).post("/api/analytics/public-event", json=body)
+
+    def test_visit_inserts_null_user_row(self):
+        conn = FakeConn()
+        r = self._post(conn)
+        assert r.status_code == 204
+        sql, args = conn.execute_calls[-1]
+        assert "NULL" in sql
+        assert args[0] == "public_visit"
+        meta = json.loads(args[1])
+        assert meta == {"route": "spiral", "anon_id": "abcdef12-3456", "public": True}
+
+    def test_completion_records_duration(self):
+        conn = FakeConn()
+        r = self._post(conn, event="public_session_completed", route="trance", duration_ms=61000)
+        assert r.status_code == 204
+        assert json.loads(conn.execute_calls[-1][1][1])["duration_ms"] == 61000
+
+    @pytest.mark.parametrize("over", [
+        {"event": "registered"},          # authed-only event name
+        {"route": "admin"},               # route not on the allowlist
+        {"anon_id": "short"},             # too short
+        {"anon_id": "bad id with spaces!"},
+        {"duration_ms": -5},
+    ])
+    def test_rejects_bad_input(self, over):
+        conn = FakeConn()
+        r = self._post(conn, **over)
+        assert r.status_code in (400, 422)
+        assert not conn.execute_calls

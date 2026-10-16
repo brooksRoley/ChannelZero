@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useAnimationCanvas, type AnimationContext } from '@/composables/useAnimationCanvas'
 import { useTextOverlay } from '@/composables/useTextOverlay'
 import { categories } from '@/composables/useTranceCategories'
 import { useTranceEngine } from '@/composables/useTranceEngine'
 import PostTranceOverlay from '@/components/PostTranceOverlay.vue'
 import { usePracticeLog } from '@/composables/usePracticeLog'
+import { logPublicEvent } from '@/composables/useAnalytics'
 
 const canvasRef = ref<HTMLCanvasElement>()
 const {
@@ -27,7 +28,10 @@ watch(completedSession, (data) => {
   if (!data) return
   showOverlay.value = true
   logPractice('spiral', data.sessionDurationMs)
+  logPublicEvent('public_session_completed', 'spiral', data.sessionDurationMs)
 })
+
+onMounted(() => logPublicEvent('public_visit', 'spiral'))
 
 function handleOverlayClose() {
   showOverlay.value = false
