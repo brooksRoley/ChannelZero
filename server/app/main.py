@@ -38,6 +38,7 @@ from .tiktok.router import router as tiktok_router
 from .analytics.router import router as analytics_router
 from .brain.router import router as brain_router
 from .vector.router import router as vector_router
+from .practice.router import router as practice_router
 
 
 logger = logging.getLogger("channelzero")
@@ -180,6 +181,7 @@ def create_app() -> FastAPI:
     app.include_router(tiktok_router, prefix=f"{prefix}/tiktok", tags=["tiktok"])
     app.include_router(analytics_router, prefix=f"{prefix}/analytics", tags=["analytics"])
     app.include_router(brain_router, prefix=f"{prefix}/brain", tags=["brain"])
+    app.include_router(practice_router, prefix=f"{prefix}/practice", tags=["practice"])
     app.include_router(vector_router, prefix=f"{prefix}/vector", tags=["vector"])
 
     # ── Global exception handler (ensures CORS headers on 500s) ──

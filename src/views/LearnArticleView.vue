@@ -3,6 +3,7 @@ import { computed, watch, defineAsyncComponent, type Component } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { LEARN_TOPICS, type LearnTopic, type LearnAnimation } from '@/data/learn'
 import { useAuthStore } from '@/composables/useAuthStore'
+import { METHODS, METHOD_ORDER } from '@/data/practiceMethods'
 
 const ANIMATIONS: Record<LearnAnimation, Component> = {
   'enfractionation': defineAsyncComponent(() => import('@/components/learn/EnfractionationAnim.vue')),
@@ -42,6 +43,9 @@ const animationComponent = computed<Component | undefined>(() =>
 const isConnectorArticle = computed(() =>
   topic.value?.linkedSession?.to === '/calibrate'
 )
+
+// A method that teaches with this article → guided practice with before/after reflection.
+const practiceMethod = computed(() => METHOD_ORDER.map((id) => METHODS[id]).find((m) => m.learnSlug === slug.value))
 
 const ctaTo = computed(() =>
   isConnectorArticle.value && !isAuthenticated.value
@@ -101,9 +105,12 @@ watch(
           <p>{{ topic.sections.inPractice }}</p>
         </section>
 
-        <div v-if="topic.linkedSession" class="cta-row">
-          <RouterLink :to="ctaTo" class="cta-btn">
+        <div v-if="topic.linkedSession || practiceMethod" class="cta-row">
+          <RouterLink v-if="topic.linkedSession" :to="ctaTo" class="cta-btn">
             {{ ctaLabel }} <span aria-hidden="true">&rarr;</span>
+          </RouterLink>
+          <RouterLink v-if="practiceMethod" :to="`/practice?method=${practiceMethod.id}`" class="cta-btn">
+            Practice {{ practiceMethod.name.toLowerCase() }} <span aria-hidden="true">&rarr;</span>
           </RouterLink>
         </div>
       </article>
@@ -238,6 +245,9 @@ watch(
 
 .cta-row {
   margin-top: 3rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .cta-btn {
