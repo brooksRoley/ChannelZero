@@ -4,7 +4,7 @@
  * how-to, and the plain prompts asked before, during and after.
  */
 
-export type MethodId = 'zeromind' | 'spiral' | 'audio' | 'studio' | 'trance'
+export type MethodId = 'zeromind' | 'spiral' | 'audio' | 'studio' | 'trance' | 'fractionation'
 
 export interface PracticeMethod {
   id: MethodId
@@ -19,7 +19,10 @@ export interface PracticeMethod {
   needsHeadphones: boolean
   prompts: {
     before: string
-    /** Asked softly during a session (Zeromind asks at phase changes). */
+    /**
+     * Asked softly during a session (Zeromind asks at phase changes; a
+     * fractionation session speaks its own lines, so these wait for "note").
+     */
     during: string[]
     after: string
   }
@@ -125,13 +128,33 @@ export const METHODS: Record<MethodId, PracticeMethod> = {
       after: 'What was it like to lose count?',
     },
   },
+  fractionation: {
+    id: 'fractionation',
+    name: 'Fractionation',
+    route: '/fractionation',
+    minutes: 8,
+    what: 'A guided voice takes you into trance, brings you briefly back up, then lets you drop deeper each time you return.',
+    how: [
+      'Headphones on, lie or sit back, and let your hands rest.',
+      'Follow the voice: close your eyes when asked, open them when asked.',
+      'Each time you go back down, let it be easier than the last. Don’t try to make it happen.',
+    ],
+    learnSlug: 'enfractionation',
+    needsHeadphones: true,
+    prompts: {
+      before: 'How easily do you usually let go?',
+      during: ['Which return felt deepest?'],
+      after: 'What was it like to come up and go back down?',
+    },
+  },
 }
 
-export const METHOD_ORDER: MethodId[] = ['zeromind', 'spiral', 'trance', 'audio', 'studio']
+export const METHOD_ORDER: MethodId[] = ['zeromind', 'fractionation', 'spiral', 'trance', 'audio', 'studio']
 
 /** Practice-log session id → method (the log predates methods). */
 export const SESSION_TO_METHOD: Record<string, MethodId> = {
   zeromind: 'zeromind',
   spiral: 'spiral',
   audio: 'audio',
+  fractionation: 'fractionation',
 }

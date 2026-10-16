@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { useTranceEngine } from '@/composables/useTranceEngine'
+
+// /fractionation drives the engine itself, so don't let a second journey start there.
+const route = useRoute()
+const startLocked = computed(() => route.name === 'fractionation')
 
 const {
   sessionActive: tranceSessionActive,
@@ -98,6 +103,7 @@ const canWindDown = computed(() =>
       <button
         class="panel-btn"
         :class="{ 'panel-btn--active': tranceSessionActive }"
+        :disabled="!tranceSessionActive && startLocked"
         @click="tranceSessionActive ? tranceStop() : tranceStart()"
       >
         {{ tranceSessionActive ? '&#9632; End' : '&#9654; Journey' }}

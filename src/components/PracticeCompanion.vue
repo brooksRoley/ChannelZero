@@ -9,8 +9,8 @@ import { METHODS } from '@/data/practiceMethods'
 /**
  * Follows a practice session into its tool. Shows a quiet pill (method + a way
  * back to reflect), and asks the method's "during" prompts: at phase changes in
- * Zeromind, or when the person taps "note" elsewhere. Answers are read for
- * sentiment and mirrored back in one line, then fade.
+ * Zeromind, or when the person taps "note" elsewhere (fractionation included).
+ * Answers are read for sentiment and mirrored back in one line, then fade.
  */
 
 const route = useRoute()
@@ -70,8 +70,11 @@ function skip() {
 }
 
 // Zeromind: ask at the deeper phase changes, not at induction or wake.
+// Fractionation drives the same phases but speaks its own lines, so a card
+// popping up mid-session would break it — there it waits for "note".
 watch(phase, (p) => {
   if (!inTool.value || !sessionActive.value) return
+  if (pending.value?.method === 'fractionation') return
   if (p === 'coherence' || p === 'deepen' || p === 'joy') ask()
 })
 

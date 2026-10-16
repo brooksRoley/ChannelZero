@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 // Local-only log of completed hypnosis sessions. Like the journal, this never
 // leaves the device — it lets check-in close the loop on "today's practice".
 
-export type PracticeSession = 'zeromind' | 'audio' | 'spiral'
+export type PracticeSession = 'zeromind' | 'audio' | 'spiral' | 'fractionation'
 
 export interface PracticeRecord {
   session: PracticeSession
@@ -23,6 +23,7 @@ export const PRACTICE_LABELS: Record<PracticeSession, string> = {
   zeromind: 'Zeromind',
   audio: 'Audio Journey',
   spiral: 'Spiral',
+  fractionation: 'Fractionation',
 }
 
 function loadLog(): PracticeRecord[] {

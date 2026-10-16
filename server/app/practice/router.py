@@ -22,7 +22,7 @@ from ..ratelimit import limiter
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-Method = Literal["zeromind", "spiral", "audio", "studio", "trance"]
+Method = Literal["zeromind", "spiral", "audio", "studio", "trance", "fractionation"]
 Moment = Literal["before", "during", "after"]
 
 METHOD_NAMES = {
@@ -31,6 +31,7 @@ METHOD_NAMES = {
     "audio": "an adaptive entrainment audio journey",
     "studio": "authoring a subliminal video in the glass studio",
     "trance": "a star-tunnel breath journey",
+    "fractionation": "a voice-guided fractionation hypnosis (in and out of trance, deeper each time)",
 }
 
 

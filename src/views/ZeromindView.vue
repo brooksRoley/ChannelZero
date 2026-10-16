@@ -1,11 +1,18 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import * as Tone from 'tone'
 import { useStoryStore } from '@/composables/useStoryStore'
 import { useTranceEngine } from '@/composables/useTranceEngine'
 import { useAnalytics, logPublicEvent } from '@/composables/useAnalytics'
 import PostTranceOverlay from '@/components/PostTranceOverlay.vue'
 import { usePracticeLog } from '@/composables/usePracticeLog'
+import FractionationSession from '@/components/FractionationSession.vue'
+
+// mode 'fractionation' (/fractionation): the fractionation runner drives the
+// engine and voice, so this view only hosts the visuals — its own mode
+// carousel, phase badge and tap-to-play ambience step aside.
+const props = defineProps<{ mode?: 'fractionation' }>()
+const fractionation = computed(() => props.mode === 'fractionation')
 
 const { currentWord } = useStoryStore()
 const { logEvent } = useAnalytics()
@@ -23,8 +30,13 @@ const { logPractice } = usePracticeLog()
 const showOverlay = ref(false)
 
 watch(completedSession, (data) => {
-  if (data) {
-    showOverlay.value = true
+  if (!data) return
+  showOverlay.value = true
+  if (fractionation.value) {
+    // 'fractionation_session_completed' isn't in the server's VALID_EVENTS
+    // allowlist and 'fractionation' isn't a public route, so no analytics yet.
+    logPractice('fractionation', data.sessionDurationMs)
+  } else {
     logPractice('zeromind', data.sessionDurationMs)
     logPublicEvent('public_session_completed', 'zeromind', data.sessionDurationMs)
     logEvent('zeromind_session_completed', {
@@ -82,7 +94,7 @@ let beatCount = 0
 let bellArpIdx = 0
 
 async function startAudio() {
-  if (audioReady) return
+  if (audioReady || fractionation.value) return
   try { await T.start() } catch { return }
 
   reverb = new T.Reverb({ decay: 6, wet: 0.45 })
@@ -631,7 +643,7 @@ function onCarouselSwipeEnd(e: TouchEvent) {
 // ── Keyboard ──────────────────────────────────────────────────────
 function onKeyDown(e: KeyboardEvent) {
   const tag = (e.target as HTMLElement)?.tagName
-  if (tag === 'INPUT' || tag === 'TEXTAREA') return
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || fractionation.value) return
   if (e.key === 'ArrowLeft') prevMode()
   if (e.key === 'ArrowRight') nextMode()
 }
@@ -646,8 +658,10 @@ watch([phase, sessionActive], () => {
 })
 
 onMounted(() => {
-  logEvent('zeromind_session_started')
-  logPublicEvent('public_visit', 'zeromind')
+  if (!fractionation.value) {
+    logEvent('zeromind_session_started')
+    logPublicEvent('public_visit', 'zeromind')
+  }
   resize()
   initParticles(MODES[modeIndex.value])
   rafId = requestAnimationFrame(tick)
@@ -685,6 +699,7 @@ onUnmounted(() => {
 
     <!-- Mode carousel -->
     <nav
+      v-if="!fractionation"
       class="mode-carousel"
       aria-label="Trance mode selector"
       @touchstart.stop="onCarouselSwipeStart"
@@ -712,7 +727,7 @@ onUnmounted(() => {
     <!-- Trance phase badge — visible when a session is active -->
     <Transition name="badge-fade">
       <div
-        v-if="sessionActive && phase !== 'idle'"
+        v-if="!fractionation && sessionActive && phase !== 'idle'"
         class="phase-badge"
         :style="{ '--accent': phaseAccent }"
         aria-live="polite"
@@ -722,6 +737,8 @@ onUnmounted(() => {
         {{ phaseDisplayName }}
       </div>
     </Transition>
+
+    <FractionationSession v-if="fractionation" />
 
     <!-- Post-trance microdose overlay -->
     <PostTranceOverlay

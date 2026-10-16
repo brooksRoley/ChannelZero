@@ -58,6 +58,12 @@ const router = createRouter({
       component: () => import('@/views/ZeromindView.vue')
     },
     {
+      path: '/fractionation',
+      name: 'fractionation',
+      component: () => import('@/views/ZeromindView.vue'),
+      props: { mode: 'fractionation' },
+    },
+    {
       path: '/studio',
       name: 'studio',
       component: () => import('@/views/GlassView.vue')

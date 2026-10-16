@@ -2,10 +2,17 @@
 // `step(state, event)` returns the next state plus the effects the caller
 // should perform (speak a line, switch the engine phase, set depth, finish).
 //
+// The Vue runner `useFractionationSession()` at the bottom drives it.
+//
 // Fractionation: take the listener down, bring them briefly up ("open your
 // eyes"), then back down deeper — repeated for `rounds` rounds.
 
+import { shallowRef, computed, watch, getCurrentScope, onScopeDispose } from 'vue'
 import { FRACTIONATION_SCRIPT, lineForRound } from '@/data/fractionationScript'
+// Used only by the Vue runner at the bottom; the reducer never touches them.
+import { useEyeState } from './useEyeState'
+import { useVoice } from './useVoice'
+import { useTranceEngine } from './useTranceEngine'
 
 export type FracStage = 'idle' | 'induce' | 'descend' | 'hold' | 'emerge' | 'reinduce' | 'final' | 'done'
 
@@ -214,4 +221,115 @@ export function step(state: FracState, event: FracEvent, config: Partial<FracCon
   // TICK or EYES: time-based transitions wait for the current line to finish.
   if (!s.speaking) s = advance(s, event.t, c, effects)
   return { state: s, effects }
+}
+
+// ── Vue runner ─────────────────────────────────────────────────────
+// Everything below wires the pure reducer above to the real world: a 250 ms
+// clock, the (opt-in) eye sensor, the voice and the trance engine. The
+// reducer itself stays free of Vue and side effects.
+
+export const TICK_MS = 250
+
+export function useFractionationSession(config: Partial<FracConfig> = {}) {
+  const eye = useEyeState()
+  const voice = useVoice()
+  const engine = useTranceEngine()
+  const cfg: FracConfig = { ...DEFAULT_CONFIG, ...config }
+
+  const state = shallowRef<FracState>(initialState())
+  let timer: ReturnType<typeof setInterval> | null = null
+  let unsubscribeEyes: (() => void) | null = null
+  /** Bumped per spoken line and on stop, so a stale say() can't advance the machine. */
+  let lineToken = 0
+
+  const running = computed(() => state.value.stage !== 'idle' && state.value.stage !== 'done')
+
+  const now = () => Date.now()
+
+  function dispatch(event: FracEvent) {
+    const r = step(state.value, event, cfg)
+    state.value = r.state
+    for (const effect of r.effects) execute(effect)
+    if (state.value.stage === 'done') teardown()
+  }
+
+  function execute(effect: FracEffect) {
+    switch (effect.type) {
+      case 'say': {
+        const token = ++lineToken
+        void voice.say(effect.text).then(() => {
+          if (token === lineToken && running.value) dispatch({ type: 'VOICE_DONE', t: now() })
+        })
+        break
+      }
+      case 'phase':
+        engine.enterPhase(effect.phase)
+        break
+      case 'depth':
+        engine.setDepth(effect.value)
+        break
+      case 'complete':
+        lineToken++
+        void engine.finishSession()
+        eye.stop()
+        voice.cancel()
+        break
+    }
+  }
+
+  function teardown() {
+    if (timer !== null) clearInterval(timer)
+    timer = null
+    unsubscribeEyes?.()
+    unsubscribeEyes = null
+  }
+
+  function sendEyes(closed: boolean) {
+    // 'no-face' keeps the last reading, so only a live track counts.
+    if (!running.value || eye.status.value !== 'tracking') return
+    dispatch({ type: 'EYES', t: now(), closed })
+  }
+
+  async function start(opts: { camera: boolean }) {
+    if (running.value) return
+    teardown()
+    state.value = initialState()
+    await engine.startSession({ autoAdvance: false, phrases: false })
+    if (opts.camera) unsubscribeEyes = eye.onChange(sendEyes)
+    dispatch({ type: 'START', t: now(), camera: opts.camera })
+    timer = setInterval(() => dispatch({ type: 'TICK', t: now() }), TICK_MS)
+  }
+
+  function stop() {
+    const wasRunning = running.value
+    dispatch({ type: 'STOP', t: now() })
+    lineToken++
+    teardown()
+    if (wasRunning && engine.sessionActive.value) engine.stopSession()
+    eye.stop()
+    voice.cancel()
+  }
+
+  // Tracking resumed (e.g. the face came back): resync the current reading.
+  watch(eye.status, (s) => {
+    if (s === 'tracking' && unsubscribeEyes) sendEyes(eye.eyesClosed.value)
+  })
+
+  // Something else ended the engine (e.g. the nav panel's End): end with it.
+  watch(engine.sessionActive, (active) => {
+    if (!active && running.value) stop()
+  })
+
+  // Leaving the page always releases the camera and the voice.
+  if (getCurrentScope()) onScopeDispose(stop)
+
+  return {
+    start,
+    stop,
+    stage: computed(() => state.value.stage),
+    round: computed(() => state.value.round),
+    rounds: computed(() => cfg.rounds),
+    running,
+    camera: computed(() => state.value.camera),
+  }
 }
