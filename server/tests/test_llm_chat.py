@@ -254,3 +254,57 @@ class TestChatCompletion:
                 call_kwargs = mock_client.post.call_args
                 payload = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
                 assert payload["model"] == "nvidia/nemotron-3-super-120b-a12b:free"
+
+
+# ── Empty replies (reasoning models) ─────────────────────────────────
+
+
+def _reply(content, finish="stop"):
+    r = MagicMock()
+    r.status_code = 200
+    r.json.return_value = {"choices": [{"message": {"content": content}, "finish_reason": finish}]}
+    return r
+
+
+def _client(*responses):
+    c = AsyncMock()
+    c.__aenter__ = AsyncMock(return_value=c)
+    c.__aexit__ = AsyncMock(return_value=False)
+    c.post = AsyncMock(side_effect=list(responses))
+    return c
+
+
+class TestEmptyReplyRetry:
+    def _settings(self):
+        return TestChatCompletion()._make_settings(llm_model="nvidia/nemotron-3-super-120b-a12b:free")
+
+    @pytest.mark.asyncio
+    async def test_retries_once_with_room_and_hidden_reasoning(self):
+        client = _client(_reply(None, "length"), _reply("  OK  "))
+        with patch("app.llm.chat.get_settings", return_value=self._settings()), \
+             patch("httpx.AsyncClient", return_value=client):
+            assert await chat_completion("Respond with exactly: OK", max_tokens=5) == "OK"
+
+        assert client.post.call_count == 2
+        retry = client.post.call_args_list[1].kwargs["json"]
+        assert retry["max_tokens"] >= 1024
+        assert retry["reasoning"] == {"effort": "low", "exclude": True}
+
+    @pytest.mark.asyncio
+    async def test_still_empty_raises_clear_502(self):
+        client = _client(_reply(None, "length"), _reply(""))
+        with patch("app.llm.chat.get_settings", return_value=self._settings()), \
+             patch("httpx.AsyncClient", return_value=client):
+            with pytest.raises(HTTPException) as exc_info:
+                await chat_completion("Hello")
+        assert exc_info.value.status_code == 502
+        assert "empty reply" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_no_reasoning_param_for_openai(self):
+        settings = TestChatCompletion()._make_settings(llm_provider="openai", openai_embed_key="sk-test")
+        client = _client(_reply(None), _reply("fine"))
+        with patch("app.llm.chat.get_settings", return_value=settings), \
+             patch("httpx.AsyncClient", return_value=client):
+            assert await chat_completion("Hello") == "fine"
+        assert "reasoning" not in client.post.call_args_list[1].kwargs["json"]
