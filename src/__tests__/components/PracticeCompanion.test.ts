@@ -41,4 +41,21 @@ describe('PracticeCompanion', () => {
     expect(usePracticeJourney().pending.value?.during[0].text).toBe('heavy and calm')
     expect(tunnelPulseStrength.value).toBeGreaterThan(0)
   })
+
+  it('stays quiet at phase changes in fractionation, which speaks its own lines', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: ['/practice', '/fractionation'].map((path) => ({ path, component: { template: '<div />' } })),
+    })
+    phase.value = 'idle'
+    usePracticeJourney().begin('fractionation', { rating: 2 })
+    await router.push('/fractionation')
+    const w = mount(PracticeCompanion, { global: { plugins: [router] } })
+    expect(w.text()).toContain('Fractionation')
+
+    phase.value = 'deepen'
+    await flushPromises()
+    expect(w.find('form').exists()).toBe(false)
+    expect(w.text()).toContain('note')
+  })
 })

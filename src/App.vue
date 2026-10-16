@@ -13,7 +13,7 @@ const mainRef = ref<HTMLElement | null>(null)
 const { zenMode } = useZenMode()
 
 const isFullBleed = computed(() => {
-  return ['reader', 'zeromind', 'studio', 'liquidglass', 'spiral', 'trance', 'webaudio'].includes(
+  return ['reader', 'zeromind', 'fractionation', 'studio', 'liquidglass', 'spiral', 'trance', 'webaudio'].includes(
     route.name as string
   )
 })

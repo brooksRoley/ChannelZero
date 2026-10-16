@@ -14,7 +14,7 @@
     <div v-if="!sessionActive" class="begin-screen">
       <h1 class="begin-title">Binaural Induction</h1>
       <p class="begin-sub">Use stereo headphones for full effect</p>
-      <button @click="startSession" class="start-btn">BEGIN ENTRAINMENT</button>
+      <button @click="startSession()" class="start-btn">BEGIN ENTRAINMENT</button>
     </div>
 
     <!-- ── Narrative phases: floating text on tunnel ── -->
