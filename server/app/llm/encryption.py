@@ -46,35 +46,3 @@ def decrypt_api_key(encrypted_key: bytes, nonce: bytes) -> str:
     aesgcm = AESGCM(aes_key)
     plaintext = aesgcm.decrypt(nonce, encrypted_key, None)
     return plaintext.decode("utf-8")
-
-
-def key_hint(plaintext_key: str) -> str:
-    """Extract last 4 characters for display: '...xK4m'"""
-    if len(plaintext_key) < 4:
-        return "****"
-    return f"...{plaintext_key[-4:]}"
-
-
-async def get_user_llm_key(user_id: str, providers: list[str] | None = None) -> tuple[str, str] | None:
-    """
-    Fetch and decrypt a user's stored LLM API key.
-
-    If providers is given, tries each in order and returns the first match.
-    Returns (provider, plaintext_key) or None if no key found.
-    """
-    from ..db import get_conn
-
-    if providers is None:
-        providers = ["anthropic", "openai", "google", "xai", "together"]
-
-    async with get_conn() as conn:
-        for provider in providers:
-            row = await conn.fetchrow(
-                "SELECT encrypted_key, key_nonce FROM user_api_keys WHERE user_id = $1 AND provider = $2",
-                __import__("uuid").UUID(user_id), provider,
-            )
-            if row:
-                plaintext = decrypt_api_key(row["encrypted_key"], row["key_nonce"])
-                return provider, plaintext
-
-    return None
