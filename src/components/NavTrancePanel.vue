@@ -20,6 +20,7 @@ const {
   thetaDreamActive,
   schumannActive,
   solfeggioActive,
+  gammaPulseActive,
   toggleBaselineModulator,
   togglePtosisInducer,
   toggleAVSync,
@@ -27,6 +28,7 @@ const {
   toggleThetaDream,
   toggleSchumann,
   toggleSolfeggio,
+  toggleGammaPulse,
 } = useTranceEngine()
 
 const toneLayers = computed(() => [
@@ -64,6 +66,11 @@ const toneLayers = computed(() => [
     key: 'solfeg', name: 'Restore', desc: '528 Hz · solfeggio',
     active: solfeggioActive.value, toggle: toggleSolfeggio,
     tooltip: '528 Hz pure sine with 1 Hz tremolo.\nSolfeggio "miracle tone" associated with restoration\nand cellular coherence. Gentle, always-on presence —\nsafe to layer under any other module.',
+  },
+  {
+    key: 'gamma', name: 'Gamma Pulse', desc: '40 Hz · isochronic',
+    active: gammaPulseActive.value, toggle: toggleGammaPulse,
+    tooltip: '220 Hz carrier pulsed 40 times a second.\nToo fast for a binaural beat, so it is amplitude-pulsed\ninstead — audible with or without headphones.\nThe most speculative band: treat it as a focus anchor.',
   },
 ])
 

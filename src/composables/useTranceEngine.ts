@@ -32,6 +32,7 @@ const alphaWaveActive = ref(false)
 const thetaDreamActive = ref(false)
 const schumannActive = ref(false)
 const solfeggioActive = ref(false)
+const gammaPulseActive = ref(false)
 
 const BREATH_CYCLE = 10
 const INHALE_TIME = 5
@@ -145,6 +146,12 @@ let schumannPanR: Tone.Panner | null = null
 let solOsc: Tone.Oscillator | null = null
 let solGain: Tone.Gain | null = null
 let solLfo: Tone.LFO | null = null
+
+// Module 8: Gamma Pulse (40 Hz isochronic — audible without headphones)
+let gammaOsc: Tone.Oscillator | null = null
+let gammaGain: Tone.Gain | null = null
+let gammaLfo: Tone.LFO | null = null
+let gammaFade: Tone.Gain | null = null
 
 // ── Phase-aware layer balance ─────────────────────────────────────
 // Defines per-phase dB levels for each entrainment layer and the Nerve Pulse
@@ -409,6 +416,52 @@ function stopSolfeggio() {
   solfeggioActive.value = false
 }
 
+// ── Module 8: Gamma Pulse (40 Hz isochronic) ──
+// A single carrier amplitude-pulsed at the beat rate. 40 Hz is too fast to
+// form a binaural beat, but an isochronic pulse is heard at any rate, in both
+// ears, with or without headphones.
+export interface IsochronicLayerSpec {
+  id: 'gamma'
+  label: string
+  carrierHz: number
+  pulseHz: number
+  depth: number // 0..1 amplitude modulation depth
+}
+
+export const ISOCHRONIC_LAYERS: Record<IsochronicLayerSpec['id'], IsochronicLayerSpec> = {
+  gamma: { id: 'gamma', label: 'Gamma Pulse', carrierHz: 220, pulseHz: 40, depth: 0.8 },
+}
+
+const GAMMA_PEAK = 0.05
+
+async function startGammaPulse() {
+  await Tone.start()
+  if (gammaOsc) return
+  const spec = ISOCHRONIC_LAYERS.gamma
+  gammaFade = new Tone.Gain(0).toDestination()
+  gammaGain = new Tone.Gain(0).connect(gammaFade)
+  gammaOsc = new Tone.Oscillator(spec.carrierHz, 'sine').connect(gammaGain)
+  gammaLfo = new Tone.LFO({
+    frequency: spec.pulseHz,
+    type: 'sine',
+    min: GAMMA_PEAK * (1 - spec.depth),
+    max: GAMMA_PEAK,
+  })
+  gammaLfo.connect(gammaGain.gain)
+  gammaLfo.start()
+  gammaOsc.start()
+  gammaFade.gain.rampTo(1, 2) // ease in, no click
+  gammaPulseActive.value = true
+}
+
+function stopGammaPulse() {
+  gammaOsc?.stop(); gammaOsc?.dispose(); gammaOsc = null
+  gammaLfo?.dispose(); gammaLfo = null
+  gammaGain?.dispose(); gammaGain = null
+  gammaFade?.dispose(); gammaFade = null
+  gammaPulseActive.value = false
+}
+
 // ── Phase helpers ──
 function setupCoherenceLoop() {
   swellGain = new Tone.Gain(0).toDestination()
@@ -532,6 +585,7 @@ async function completeSession() {
       thetaDreamActive.value && 'theta_dream',
       schumannActive.value && 'schumann',
       solfeggioActive.value && 'solfeggio',
+      gammaPulseActive.value && 'gamma_pulse',
     ].filter(Boolean) as string[],
   }
 
@@ -577,6 +631,7 @@ function stopSession() {
   stopThetaDream()
   stopSchumann()
   stopSolfeggio()
+  stopGammaPulse()
   Tone.getTransport().stop()
 
   phase.value = 'idle'
@@ -659,6 +714,11 @@ async function toggleSolfeggio() {
   else await startSolfeggio()
 }
 
+async function toggleGammaPulse() {
+  if (gammaPulseActive.value) stopGammaPulse()
+  else await startGammaPulse()
+}
+
 // ── Gamification helpers ──
 const activeLayerCount = computed(() =>
   [
@@ -669,10 +729,11 @@ const activeLayerCount = computed(() =>
     thetaDreamActive.value,
     schumannActive.value,
     solfeggioActive.value,
+    gammaPulseActive.value,
   ].filter(Boolean).length
 )
 
-const TOTAL_LAYERS = 7
+const TOTAL_LAYERS = 8
 
 const phaseDisplayName = computed(() => {
   const names: Record<TrancePhase, string> = {
@@ -722,6 +783,7 @@ export function useTranceEngine() {
     thetaDreamActive: readonly(thetaDreamActive),
     schumannActive: readonly(schumannActive),
     solfeggioActive: readonly(solfeggioActive),
+    gammaPulseActive: readonly(gammaPulseActive),
     phaseAccent,
     isNarrativePhase,
     activeLayerCount,
@@ -746,5 +808,6 @@ export function useTranceEngine() {
     toggleThetaDream,
     toggleSchumann,
     toggleSolfeggio,
+    toggleGammaPulse,
   }
 }
