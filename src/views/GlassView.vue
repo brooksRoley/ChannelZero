@@ -128,6 +128,8 @@
           :active-beat-hz="studioBinaural.activeBeatHz.value"
           :tone-presets="presetLabels"
           :active-tone-preset="activePreset"
+          v-model:fade-s="composition.fadeS"
+          @textures="studioBinaural.updateTextures()"
           @apply="onBinauralApply"
           @volume="onBinauralVolume"
           @tone="(k: string) => selectPreset(k as TonePreset)"
@@ -162,6 +164,22 @@
           class="flex-1 h-1 accent-white/40 cursor-pointer" :disabled="!hasMedia"
         />
         <span class="text-[10px] text-slate-500 font-mono w-10 shrink-0">{{ fmt(duration) }}</span>
+      </div>
+
+      <!-- Trim (In / Out from the playhead) -->
+      <div v-if="hasMedia" class="flex items-center gap-2 pl-12">
+        <button class="trim-btn" title="Set In point at playhead" @click="markIn">[ In</button>
+        <div class="relative flex-1 h-1 rounded-full bg-white/[0.06]" aria-hidden="true">
+          <div
+            class="absolute inset-y-0 rounded-full bg-emerald-500/40"
+            :style="{ left: `${pct(trim.startS)}%`, width: `${pct(trim.endS) - pct(trim.startS)}%` }"
+          />
+        </div>
+        <button class="trim-btn" title="Set Out point at playhead" @click="markOut">Out ]</button>
+        <span class="text-[10px] text-slate-500 font-mono shrink-0">
+          {{ fmt(trim.startS) }}–{{ fmt(trim.endS) }}
+        </span>
+        <button v-if="trimmed" class="trim-btn" title="Clear trim" @click="clearTrim">×</button>
       </div>
 
       <!-- Tools -->
@@ -235,8 +253,11 @@ import { useAudioSync } from '@/composables/useAudioSync'
 import { useGlassTones, PRESET_LABELS, type TonePreset } from '@/composables/useGlassTones'
 import { useGlassExport } from '@/composables/useGlassExport'
 import { useStudioBinaural } from '@/composables/useStudioBinaural'
-import { drawFrame } from '@/composables/useGlassComposer'
+import { drawFrame, drawFade } from '@/composables/useGlassComposer'
 import { makeDefaultComposition } from '@/composables/studioTypes'
+import {
+  clampTrim, setTrimIn, setTrimOut, isTrimmed, loopCorrection, sessionEnvelope, type TrimRange,
+} from '@/composables/studioTrim'
 import { type GlassRecipe } from '@/data/glassRecipes'
 import TextControls from '@/components/studio/TextControls.vue'
 import SoundControls from '@/components/studio/SoundControls.vue'
@@ -256,6 +277,20 @@ const fileName = ref('')
 const activePanel = ref<'text' | 'sound' | 'recipes' | null>(null)
 const hasMedia = computed(() => !!mediaUrl.value)
 
+// ── Trim ──
+const trim = reactive<TrimRange>({ startS: 0, endS: 0 })
+const trimmed = computed(() => isTrimmed(trim, duration.value))
+
+function applyTrim(next: TrimRange) {
+  Object.assign(trim, next)
+  // Journey phases fit the trimmed span, not the whole file.
+  studioBinaural.setMediaDuration(trim.endS - trim.startS)
+}
+function markIn() { applyTrim(setTrimIn(trim, currentTime.value, duration.value)) }
+function markOut() { applyTrim(setTrimOut(trim, currentTime.value, duration.value)) }
+function clearTrim() { applyTrim(clampTrim({ startS: 0, endS: 0 }, duration.value)) }
+function pct(s: number) { return duration.value > 0 ? (s / duration.value) * 100 : 0 }
+
 function togglePanel(p: 'text' | 'sound' | 'recipes') {
   activePanel.value = activePanel.value === p ? null : p
 }
@@ -272,10 +307,26 @@ const quickText = computed({
   },
 })
 
+// ── Session bus ──
+// Media audio, reactive tones and the binaural engine all sum here; its gain
+// carries the session fade and export taps it once.
+let sessionBus: GainNode | null = null
+function getBus(): GainNode {
+  if (!sessionBus) {
+    const ctx = Tone.getContext().rawContext as AudioContext
+    sessionBus = ctx.createGain()
+    sessionBus.connect(ctx.destination)
+    const toneMaster = tones.getMasterNode()
+    toneMaster.disconnect()
+    toneMaster.connect(sessionBus)
+  }
+  return sessionBus
+}
+
 // ── Composables ──
 const sync = useAudioSync()
 const tones = useGlassTones()
-const studioBinaural = useStudioBinaural(composition.binaural)
+const studioBinaural = useStudioBinaural(composition.binaural, getBus)
 const { isRecording: isExporting, progress: exportProgress, startExport, stopExport: cancelExport } = useGlassExport()
 
 const presetLabels = PRESET_LABELS
@@ -310,11 +361,24 @@ function overlayLoop() {
 
   // Export re-draws text on a canvas frame while recording; skip preview draw
   // then to avoid double compositing artifacts.
+  // Session fade: drive the bus gain from the media clock (preview and export).
+  const media = mediaRef.value
+  const env = media && (isPlaying.value || isExporting.value)
+    ? sessionEnvelope(trim, media.currentTime, composition.fadeS)
+    : 1
+  if (sessionBus) sessionBus.gain.setTargetAtTime(env, sessionBus.context.currentTime, 0.015)
+
   if (isExporting.value || !mediaRef.value) return
+  // Keep preview playback inside the trim range (frame-accurate, unlike timeupdate).
+  if (isPlaying.value && trimmed.value) {
+    const to = loopCorrection(trim, mediaRef.value.currentTime)
+    if (to !== null) mediaRef.value.currentTime = to
+  }
   const clockMs = mediaRef.value.currentTime * 1000
   // Pass the live binaural beat so `syncToBeat` motion pulses in the preview.
   const beatHz = composition.binaural.enabled ? studioBinaural.activeBeatHz.value : undefined
   drawFrame(ctx, clockMs, composition.textLayers, { w, h }, beatHz)
+  drawFade(ctx, { w, h }, env)
 }
 
 // ── Audio-only waveform ring ──
@@ -384,17 +448,17 @@ async function handleUpload(e: Event) {
 async function onMediaLoaded() {
   if (!mediaRef.value) return
   duration.value = mediaRef.value.duration
-  // Journey phases auto-fit to the media length.
-  studioBinaural.setMediaDuration(mediaRef.value.duration)
+  // New media resets the trim; journey phases auto-fit to the (full) length.
+  applyTrim(clampTrim({ startS: 0, endS: 0 }, mediaRef.value.duration))
   await Tone.start()
-  await sync.connect(mediaRef.value)
+  await sync.connect(mediaRef.value, getBus())
 }
 
 function onTimeUpdate() {
   if (!mediaRef.value) return
   currentTime.value = mediaRef.value.currentTime
   // Advance the binaural journey off the media clock (no-op in preset mode).
-  studioBinaural.tickJourney(mediaRef.value.currentTime)
+  studioBinaural.tickJourney(mediaRef.value.currentTime - trim.startS)
 }
 
 function onEnded() {
@@ -459,6 +523,7 @@ async function applyRecipe(recipe: GlassRecipe) {
   const built = recipe.build()
   composition.textLayers.splice(0, composition.textLayers.length, ...built.textLayers)
   Object.assign(composition.binaural, built.binaural)
+  composition.fadeS = built.fadeS
   composition.recipeId = recipe.id
   // Re-seat the engine on the new binaural config (same path as a Sound-panel edit).
   await onBinauralApply()
@@ -469,26 +534,19 @@ async function doExport() {
   if (!mediaRef.value) return
   isPlaying.value = true
 
-  // Start the beat first so its graph lives in Tone's shared context and its
-  // output node can be routed into the export's MediaStreamAudioDestination
-  // (same context = the beat actually lands in the file).
-  const extraNodes: AudioNode[] = []
+  // Start the beat first so its graph lives in Tone's shared context, routed
+  // into the session bus the export taps (same context = it lands in the file).
   let beatHz: number | undefined
   if (composition.binaural.enabled) {
     await studioBinaural.start()
-    const node = studioBinaural.getOutputNode()
-    if (node) extraNodes.push(node)
     beatHz = studioBinaural.activeBeatHz.value
   }
 
-  await startExport(
-    mediaRef.value,
-    composition.textLayers,
-    sync.getAnalyserNode(),
-    tones.getMasterNode(),
-    extraNodes,
+  await startExport(mediaRef.value, composition.textLayers, getBus(), {
     beatHz,
-  )
+    range: { ...trim },
+    fadeS: composition.fadeS,
+  })
 }
 
 // ── Lifecycle ──
@@ -510,6 +568,11 @@ onUnmounted(() => {
   @apply w-9 h-9 rounded-full bg-white/5 hover:bg-white/10
          border border-white/[0.06] text-white/50 hover:text-white/80
          flex items-center justify-center transition-all shrink-0 active:scale-95;
+}
+
+.trim-btn {
+  @apply px-2 py-0.5 rounded-full text-[10px] tracking-wider border border-white/[0.08]
+         text-white/40 hover:text-white/70 hover:border-white/20 transition-all shrink-0;
 }
 
 .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }

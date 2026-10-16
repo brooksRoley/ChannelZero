@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { layerStateAt, FLASH_FLOOR_MS } from '@/composables/useGlassComposer'
+import { layerStateAt, FLASH_FLOOR_MS, safeVisualHz, subliminalFlashRate, MAX_VISUAL_HZ, DEFAULT_MOTION_HZ } from '@/composables/useGlassComposer'
+import { isochronicDepth, ISOCHRONIC_ABOVE_HZ } from '@/composables/useBinauralEngine'
 import { makeDefaultTextLayer, type TextLayer } from '@/composables/studioTypes'
 
 function layer(overrides: Partial<TextLayer> = {}): TextLayer {
@@ -90,5 +91,47 @@ describe('layerStateAt — persistent timing', () => {
     expect(layerStateAt(p, 200).alpha).toBeCloseTo(0.3, 5) // half of 400ms fade × 0.6
     expect(layerStateAt(p, 5000).alpha).toBeCloseTo(0.6, 5)
     expect(layerStateAt(p, 5000).text).toBe('always')
+  })
+})
+
+describe('safeVisualHz — beat-synced motion stays under the flash limit', () => {
+  it('divides every studio band down to a phase-locked subharmonic ≤ MAX_VISUAL_HZ', () => {
+    for (const beat of [2, 6, 7.83, 10, 18, 40]) {
+      const hz = safeVisualHz(beat)
+      expect(hz).toBeLessThanOrEqual(MAX_VISUAL_HZ)
+      expect(Number.isInteger(+(beat / hz).toFixed(9))).toBe(true)
+    }
+    expect(safeVisualHz(10)).toBe(2.5)
+    expect(safeVisualHz(40)).toBe(2.5)
+    expect(safeVisualHz(2)).toBe(2)
+  })
+
+  it('falls back to the default rate with no beat', () => {
+    expect(safeVisualHz(0)).toBe(DEFAULT_MOTION_HZ)
+  })
+
+  it('caps waver opacity oscillation even at a 40 Hz beat', () => {
+    const l = layer({ motion: { type: 'waver', amount: 1, syncToBeat: true } })
+    // At 2.5 Hz, two samples 1/80 s apart (a quarter of a 40 Hz cycle) barely differ.
+    const a = layerStateAt(l, 0, 40).transform.alphaMul
+    const b = layerStateAt(l, 1000 / 160, 40).transform.alphaMul
+    expect(Math.abs(a - b)).toBeLessThan(0.05)
+  })
+})
+
+describe('subliminalFlashRate', () => {
+  const sub = (intervalMs: number, content = ['x']) =>
+    layer({ content, timing: { ...layer().timing, mode: 'subliminal', intervalMs } })
+
+  it('sums flashes/sec across subliminal layers with content', () => {
+    expect(subliminalFlashRate([sub(500), sub(500)])).toBe(4)
+    expect(subliminalFlashRate([sub(1000), sub(500, [''])])).toBe(1)
+  })
+})
+
+describe('isochronicDepth', () => {
+  it('engages only above the binaural ceiling', () => {
+    expect(isochronicDepth(ISOCHRONIC_ABOVE_HZ)).toBe(0)
+    expect(isochronicDepth(40)).toBeGreaterThan(0)
   })
 })

@@ -52,10 +52,10 @@ describe('AdminSections', () => {
 })
 
 describe('AdminHypnoAudit', () => {
-  it('renders the spec audit with a gamma warning', () => {
+  it('renders the spec audit with gamma reinforced isochronically', () => {
     const w = mount(AdminHypnoAudit)
     expect(w.text()).toContain('Binaural spec audit')
     expect(w.text()).toContain('Alpha Wave')
-    expect(w.text()).toContain('weakly perceived')
+    expect(w.text()).toContain('isochronic pulse')
   })
 })

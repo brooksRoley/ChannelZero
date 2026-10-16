@@ -41,6 +41,7 @@ export const GLASS_RECIPES: GlassRecipe[] = [
     blurb: 'Theta journey with self-directed affirmations flashed at the edge of notice.',
     learnSlug: 'suggestion-induction',
     build: (): GlassComposition => ({
+      fadeS: 3,
       recipeId: 'confidence-subliminal',
       textLayers: [
         makeDefaultTextLayer({
@@ -65,6 +66,7 @@ export const GLASS_RECIPES: GlassRecipe[] = [
       ],
       // Alpha to settle, then rest in theta — the workhorse band for receptive depth.
       binaural: binaural({
+        textures: { noise: 0, pad: 0.4, shimmer: 0.2 },
         mode: 'journey',
         band: 'theta',
         journey: [
@@ -82,6 +84,7 @@ export const GLASS_RECIPES: GlassRecipe[] = [
     blurb: 'Alpha to theta journey under a persistent breath cue.',
     learnSlug: 'targeting-brainwave-states',
     build: (): GlassComposition => ({
+      fadeS: 6,
       recipeId: 'calm-descent',
       textLayers: [
         makeDefaultTextLayer({
@@ -100,6 +103,7 @@ export const GLASS_RECIPES: GlassRecipe[] = [
         }),
       ],
       binaural: binaural({
+        textures: { noise: 0.4, pad: 0.6, shimmer: 0 },
         mode: 'journey',
         band: 'theta',
         journey: [
@@ -117,6 +121,7 @@ export const GLASS_RECIPES: GlassRecipe[] = [
     blurb: 'Steady gamma anchor with a short rotation of focus cues.',
     learnSlug: 'targeting-brainwave-states',
     build: (): GlassComposition => ({
+      fadeS: 3,
       recipeId: 'focus-field',
       textLayers: [
         makeDefaultTextLayer({
@@ -134,6 +139,7 @@ export const GLASS_RECIPES: GlassRecipe[] = [
         }),
       ],
       binaural: binaural({
+        textures: { noise: 0.3, pad: 0, shimmer: 0.3 },
         mode: 'preset',
         band: 'gamma',
         journey: [],
@@ -148,6 +154,7 @@ export const GLASS_RECIPES: GlassRecipe[] = [
     blurb: 'A long descent toward delta with a single fading release cue.',
     learnSlug: 'binaural-beats-protocol',
     build: (): GlassComposition => ({
+      fadeS: 10,
       recipeId: 'sleep-drift',
       textLayers: [
         makeDefaultTextLayer({
@@ -166,6 +173,7 @@ export const GLASS_RECIPES: GlassRecipe[] = [
         }),
       ],
       binaural: binaural({
+        textures: { noise: 0.6, pad: 0.7, shimmer: 0 },
         mode: 'journey',
         band: 'delta',
         journey: [
@@ -184,6 +192,7 @@ export const GLASS_RECIPES: GlassRecipe[] = [
     blurb: 'Relaxed alpha with drifting, open-ended prompts.',
     learnSlug: 'binaural-entrainment',
     build: (): GlassComposition => ({
+      fadeS: 4,
       recipeId: 'creative-alpha',
       textLayers: [
         makeDefaultTextLayer({
@@ -202,6 +211,7 @@ export const GLASS_RECIPES: GlassRecipe[] = [
         }),
       ],
       binaural: binaural({
+        textures: { noise: 0, pad: 0.3, shimmer: 0.5 },
         mode: 'preset',
         band: 'alpha',
         journey: [],

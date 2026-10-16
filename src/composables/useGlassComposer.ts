@@ -25,6 +25,24 @@ export const FLASH_FLOOR_MS = 33
 /** Default oscillation rate (Hz) for motion when not synced to a binaural beat. */
 export const DEFAULT_MOTION_HZ = 0.5
 
+/**
+ * Ceiling for beat-synced visual motion. WCAG 2.3.1 fails more than 3 flashes/s,
+ * and `waver` swings opacity — at a raw 10 Hz alpha or 40 Hz gamma beat it is a
+ * flicker. Stay under 3 Hz with margin.
+ */
+export const MAX_VISUAL_HZ = 2.5
+
+/**
+ * PURE: the visual rate for a beat — the highest integer subharmonic of
+ * `beatHz` (beatHz / k) at or below MAX_VISUAL_HZ, so motion stays phase-locked
+ * to the beat (every k-th beat) without flickering. 10 Hz → 2.5 Hz, 40 Hz → 2.5 Hz,
+ * 6 Hz → 2 Hz, 2 Hz → 2 Hz.
+ */
+export function safeVisualHz(beatHz: number): number {
+  if (!(beatHz > 0)) return DEFAULT_MOTION_HZ
+  return beatHz / Math.max(1, Math.ceil(beatHz / MAX_VISUAL_HZ))
+}
+
 /** Fraction of viewport width used as the text wrap / padding margin. */
 const TEXT_MARGIN = 0.08
 
@@ -145,6 +163,16 @@ function subliminalState(layer: TextLayer, tMs: number): { text: string | null; 
   return { text, alpha: on ? layer.style.opacity : 0 }
 }
 
+/**
+ * PURE: worst-case combined subliminal flash rate (flashes/s) across layers,
+ * assuming their intervals line up. Above 3/s breaches WCAG 2.3.1.
+ */
+export function subliminalFlashRate(layers: TextLayer[]): number {
+  return layers
+    .filter((l) => l.timing.mode === 'subliminal' && l.content.some((c) => c.trim()))
+    .reduce((sum, l) => sum + 1000 / Math.max(1, l.timing.intervalMs), 0)
+}
+
 /** Additive motion transform for this frame. */
 function motionTransform(layer: TextLayer, tMs: number, beatHz?: number): LayerTransform {
   const { type, amount, syncToBeat } = layer.motion
@@ -152,7 +180,7 @@ function motionTransform(layer: TextLayer, tMs: number, beatHz?: number): LayerT
 
   const a = Math.max(0, Math.min(1, amount))
   const tSec = tMs / 1000
-  const freq = syncToBeat && beatHz && beatHz > 0 ? beatHz : DEFAULT_MOTION_HZ
+  const freq = syncToBeat && beatHz && beatHz > 0 ? safeVisualHz(beatHz) : DEFAULT_MOTION_HZ
   const phase = 2 * Math.PI * freq * tSec
 
   const tf: LayerTransform = { scale: 1, txFrac: 0, tyFrac: 0, alphaMul: 1 }
@@ -338,4 +366,15 @@ export function drawFrame(
  */
 export function useGlassComposer() {
   return { drawFrame, layerStateAt }
+}
+
+/** Fade-to-black over the whole frame: `env` 1 = untouched, 0 = black. */
+export function drawFade(ctx: CanvasRenderingContext2D, size: { w: number; h: number }, env: number) {
+  if (env >= 1) return
+  ctx.save()
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.globalAlpha = Math.max(0, Math.min(1, 1 - env))
+  ctx.fillStyle = '#000'
+  ctx.fillRect(0, 0, size.w, size.h)
+  ctx.restore()
 }

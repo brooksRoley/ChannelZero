@@ -137,9 +137,45 @@
         </label>
 
         <p v-if="activeBeatHz > 0" class="text-[9px] text-white/25 font-mono">
-          Now playing: {{ activeBeatHz }} Hz beat
+          Now playing: {{ activeBeatHz }} Hz beat<span v-if="isochronicDepth(activeBeatHz) > 0"> + isochronic pulse</span>
         </p>
+
+        <!-- Texture bed -->
+        <div class="space-y-1.5 pt-1 border-t border-white/[0.04]">
+          <span class="text-[9px] uppercase tracking-[0.2em] text-white/30">Textures under the beat</span>
+          <label v-for="t in TEXTURES" :key="t.id" class="cz-field w-full" :title="t.hint">
+            <span>{{ t.label }} {{ Math.round(binaural.textures[t.id] * 100) }}%</span>
+            <input
+              :value="binaural.textures[t.id]"
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              class="cz-range"
+              @input="setTexture(t.id, $event)"
+            />
+          </label>
+        </div>
       </template>
+    </div>
+
+    <!-- ── Session envelope ── -->
+    <div class="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 space-y-2">
+      <label class="cz-field w-full">
+        <span>Session fade {{ fadeS > 0 ? `${fadeS}s` : 'off' }}</span>
+        <input
+          :value="fadeS"
+          type="range"
+          min="0"
+          max="15"
+          step="0.5"
+          class="cz-range"
+          @input="emit('update:fadeS', Number(($event.target as HTMLInputElement).value))"
+        />
+      </label>
+      <p class="text-[9px] text-white/25 leading-snug">
+        Sound and picture fade in from silence and black after the In point, and back out before Out.
+      </p>
     </div>
 
     <!-- ── Tone synthesis presets (existing glass tones) ── -->
@@ -168,6 +204,13 @@
 import { computed } from 'vue'
 import type { Band, BinauralConfig } from '@/composables/studioTypes'
 import { BANDS } from '@/composables/useStudioBinaural'
+import { isochronicDepth, type TextureId } from '@/composables/useBinauralEngine'
+
+const TEXTURES: { id: TextureId; label: string; hint: string }[] = [
+  { id: 'noise', label: 'Pink noise', hint: 'Soft filtered noise — masks the room and smooths the beat' },
+  { id: 'pad', label: 'Sub pad', hint: 'Breathing drone an octave under the carrier' },
+  { id: 'shimmer', label: 'Shimmer', hint: 'Quiet high partials with a slow tremolo' },
+]
 
 /**
  * The parent passes its reactive `composition.binaural`; we mutate it in place
@@ -180,12 +223,15 @@ const props = defineProps<{
   activeBeatHz: number
   tonePresets: Record<string, string>
   activeTonePreset: string
+  fadeS: number
 }>()
 
 const emit = defineEmits<{
   (e: 'apply'): void
   (e: 'volume', v: number): void
   (e: 'tone', key: string): void
+  (e: 'textures'): void
+  (e: 'update:fadeS', v: number): void
 }>()
 
 const activeDef = computed(() => BANDS[props.binaural.band])
@@ -203,6 +249,11 @@ function setMode(mode: 'preset' | 'journey') {
 function pickBand(band: Band) {
   props.binaural.band = band
   emit('apply')
+}
+
+function setTexture(id: TextureId, e: Event) {
+  props.binaural.textures[id] = Number((e.target as HTMLInputElement).value)
+  emit('textures')
 }
 
 function onVolume(e: Event) {
