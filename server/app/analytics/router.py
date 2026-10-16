@@ -8,7 +8,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..auth.deps import get_current_user_id, require_admin
 from ..db import get_conn
@@ -46,6 +46,10 @@ VALID_EVENTS = {
     "portrait_generated",
     "portrait_viewed",
 }
+
+# Anonymous events for the open (no-login) trance routes — experiment E3.
+PUBLIC_EVENTS = {"public_visit", "public_session_completed"}
+PUBLIC_ROUTES = {"zeromind", "spiral", "trance"}
 
 # Core self-expression / hypnosis loop events (journal, check-in, zeromind).
 # These drive the streak counter and the new funnel steps.
@@ -97,6 +101,38 @@ async def log_event(
             VALUES ($1, $2, $3::jsonb)
             """,
             user_id, body.event, json.dumps(body.metadata),
+        )
+
+
+# ── Public: anonymous event from an open trance route (E3) ──────────────────
+
+class PublicEventRequest(BaseModel):
+    event: str
+    route: str
+    anon_id: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    duration_ms: Optional[int] = Field(default=None, ge=0, le=86_400_000)
+
+
+@router.post("/public-event", status_code=204)
+@limiter.limit("30/hour")
+async def log_public_event(request: Request, body: PublicEventRequest):
+    """Log an anonymous visit/completion for /zeromind /spiral /trance.
+
+    No auth: user_id is NULL. `anon_id` is a random per-browser id (never tied
+    to an account) so repeat visits can be counted per route.
+    """
+    if body.event not in PUBLIC_EVENTS or body.route not in PUBLIC_ROUTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unknown public event or route",
+        )
+    meta = {"route": body.route, "anon_id": body.anon_id, "public": True}
+    if body.duration_ms is not None:
+        meta["duration_ms"] = body.duration_ms
+    async with get_conn() as conn:
+        await conn.execute(
+            "INSERT INTO session_events (user_id, event, metadata) VALUES (NULL, $1, $2::jsonb)",
+            body.event, json.dumps(meta),
         )
 
 
