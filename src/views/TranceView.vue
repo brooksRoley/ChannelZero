@@ -3,15 +3,17 @@ import { ref, watch, onMounted } from 'vue'
 import TranceCanvas from '@/components/TranceCanvas.vue'
 import PostTranceOverlay from '@/components/PostTranceOverlay.vue'
 import { useTranceEngine } from '@/composables/useTranceEngine'
-import { logPublicEvent } from '@/composables/useAnalytics'
+import { logPublicEvent, useAnalytics } from '@/composables/useAnalytics'
 
 const { completedSession, clearCompletedSession } = useTranceEngine()
+const { logEvent } = useAnalytics()
 const showOverlay = ref(false)
 
 watch(completedSession, (data) => {
   if (data) {
     showOverlay.value = true
     logPublicEvent('public_session_completed', 'trance', data.sessionDurationMs)
+    logEvent('practice_completed', { kind: 'trance', duration_ms: data.sessionDurationMs })
   }
 })
 
