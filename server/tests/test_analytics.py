@@ -96,6 +96,13 @@ class TestEventAllowlist:
         stored_meta = json.loads(args[2])
         assert stored_meta["provider"] == "spotify"
 
+    def test_practice_completed_counts_toward_streak_and_funnel(self):
+        """Spiral/audio/trance completions must feed the streak + completed_session funnel."""
+        from app.analytics.router import SELF_EXPRESSION_COMPLETED, SELF_EXPRESSION_EVENTS
+        assert "practice_completed" in VALID_EVENTS
+        assert "practice_completed" in SELF_EXPRESSION_COMPLETED
+        assert "practice_completed" in SELF_EXPRESSION_EVENTS
+
 
 # ── Provider allowlist ───────────────────────────────────────────────────────
 
