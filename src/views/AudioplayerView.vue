@@ -7,6 +7,7 @@ import {
 import { useTextOverlay } from '@/composables/useTextOverlay'
 import { useAudioMixer } from '@/composables/useAudioMixer'
 import { usePracticeLog } from '@/composables/usePracticeLog'
+import { useAnalytics } from '@/composables/useAnalytics'
 
 // ── Composables ──
 const {
@@ -23,13 +24,16 @@ const {
 
 const { tracks, toggleTrack, setVolume: setTrackVolume } = useAudioMixer()
 const { logPractice } = usePracticeLog()
+const { logEvent } = useAnalytics()
 
 // Record a finished journey in the local practice log (read by check-in).
 let journeyStartedAt = 0
 watch(active, (on) => { if (on) journeyStartedAt = Date.now() })
 watch(phase, (p) => {
   if (p === 'complete' && journeyStartedAt) {
-    logPractice('audio', Date.now() - journeyStartedAt)
+    const duration = Date.now() - journeyStartedAt
+    logPractice('audio', duration)
+    logEvent('practice_completed', { kind: 'audio', duration_ms: duration })
     journeyStartedAt = 0
   }
 })

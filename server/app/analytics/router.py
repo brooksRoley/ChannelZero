@@ -31,6 +31,7 @@ VALID_EVENTS = {
     "checkin_started",
     "checkin_completed",
     "practice_started",
+    "practice_completed",
     "zeromind_session_started",
     "zeromind_session_completed",
     # funnel steps
@@ -62,6 +63,7 @@ SELF_EXPRESSION_COMPLETED = [
     "journal_session_completed",
     "checkin_completed",
     "zeromind_session_completed",
+    "practice_completed",  # spiral / audio / trance (metadata.kind)
 ]
 SELF_EXPRESSION_EVENTS = SELF_EXPRESSION_STARTED + SELF_EXPRESSION_COMPLETED
 
@@ -142,7 +144,7 @@ async def log_public_event(request: Request, body: PublicEventRequest):
 async def my_streak(user_id: UUID = Depends(get_current_user_id)):
     """Return the current user's consecutive-day self-expression streak.
 
-    A day counts as active if it has any journal / check-in / zeromind event.
+    A day counts as active if it has any journal / check-in / zeromind / spiral / audio / trance event.
     Streak is the run of consecutive calendar days (UTC) ending today, or
     yesterday if today has no activity yet (so the streak isn't shown as broken
     until a full day is missed).

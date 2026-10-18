@@ -6,7 +6,7 @@ import { categories } from '@/composables/useTranceCategories'
 import { useTranceEngine } from '@/composables/useTranceEngine'
 import PostTranceOverlay from '@/components/PostTranceOverlay.vue'
 import { usePracticeLog } from '@/composables/usePracticeLog'
-import { logPublicEvent } from '@/composables/useAnalytics'
+import { logPublicEvent, useAnalytics } from '@/composables/useAnalytics'
 
 const canvasRef = ref<HTMLCanvasElement>()
 const {
@@ -22,12 +22,14 @@ const {
 
 const { completedSession, clearCompletedSession } = useTranceEngine()
 const { logPractice } = usePracticeLog()
+const { logEvent } = useAnalytics()
 const showOverlay = ref(false)
 
 watch(completedSession, (data) => {
   if (!data) return
   showOverlay.value = true
   logPractice('spiral', data.sessionDurationMs)
+  logEvent('practice_completed', { kind: 'spiral', duration_ms: data.sessionDurationMs })
   logPublicEvent('public_session_completed', 'spiral', data.sessionDurationMs)
 })
 
