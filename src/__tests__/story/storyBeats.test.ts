@@ -5,9 +5,10 @@ import {
 } from '@/story/storyBeats'
 import { chunkPhrases, splitWords } from '@/story/phrases'
 import { BANDS } from '@/composables/useStudioBinaural'
-import { captionLayer, canvasSizeFor } from '@/story/useStoryPlayer'
-import { extractKeys, textId, type Alignment } from '@/story/storyBeats'
-import { STAGE_EFFECTS, maxFlashesPerSecond } from '@/story/effects'
+import { canvasSizeFor } from '@/story/useStoryPlayer'
+import { extractKeys, textId, lineAt, type Alignment } from '@/story/storyBeats'
+import { STAGE_EFFECTS, GENTLE_EFFECT, maxFlashesPerSecond } from '@/story/effects'
+import { padSegments, duckWindows, STAGE_CHORDS } from '@/story/renderSoundtrack'
 import { voiceScript } from '@/story/voicePack'
 import { STORY_SAMPLES } from '@/data/storySamples'
 
@@ -122,13 +123,6 @@ describe('sampling', () => {
 })
 
 describe('overlay', () => {
-  it('builds a bottom subtitle layer whose opacity follows the frame alpha', () => {
-    const l = captionLayer('go deeper', 0.5)
-    expect(l.content).toEqual(['go deeper'])
-    expect(l.pos.anchor).toBe('bc')
-    expect(l.style.opacity).toBeCloseTo(0.425)
-  })
-
   it('sizes the canvas to the video, capped at 1920 on the long edge', () => {
     expect(canvasSizeFor(null)).toEqual({ w: 1280, h: 720 })
     const v = { videoWidth: 2160, videoHeight: 3840 } as HTMLVideoElement
@@ -156,7 +150,7 @@ describe('key phrases', () => {
   })
 
   it('rotates effects through the stage set unless one is named', () => {
-    const tl = buildTimeline(parseStory('[induce]\n*a* *b* *c* *slam:d* *e*'))
+    const tl = buildTimeline(parseStory('[induce]\n*a* *b* *c* *slam:d* *e*'), { look: 'bold' })
     expect(tl.keys.map((k) => k.effect)).toEqual([...STAGE_EFFECTS.induce, 'slam', STAGE_EFFECTS.induce[1]])
   })
 
@@ -197,7 +191,7 @@ describe('subliminals', () => {
 
 describe('photosensitivity', () => {
   it('downgrades a flash whose strobe would overlap another', () => {
-    const tl = buildTimeline(parseStory('[induce]\n*flash:one* *flash:two* *flash:three*'))
+    const tl = buildTimeline(parseStory('[induce]\n*flash:one* *flash:two* *flash:three*'), { look: 'bold' })
     expect(tl.keys[0].effect).toBe('flash')
     expect(tl.keys.filter((k) => k.effect === 'flash').length).toBeLessThan(3)
   })
@@ -205,7 +199,7 @@ describe('photosensitivity', () => {
   it('keeps every starter story and a flash-heavy story under 3 flashes/s', () => {
     const heavy = '[subliminal a, b, c]\n' + Array.from({ length: 12 }, () => '*flash:now* and *flash:now*').join('\n\n')
     for (const src of [...STORY_SAMPLES.map((s) => s.text), heavy]) {
-      const tl = buildTimeline(parseStory(src), { wpm: 220 })
+      const tl = buildTimeline(parseStory(src), { wpm: 220, look: 'bold' })
       expect(maxFlashesPerSecond(tl.keys, tl.subliminals)).toBeLessThan(3)
     }
   })
@@ -221,5 +215,72 @@ describe('voice script', () => {
     const vs = voiceScript(parseStory('Same line.\n\n[pause 2]\n\nSame line.\n\nOther.'))
     expect(vs.version).toBe(1)
     expect(vs.beats.map((b) => b.text)).toEqual(['Same line.', 'Other.'])
+  })
+})
+
+describe('gentle look', () => {
+  const story = STORY_SAMPLES[0].text
+
+  it('is the default, and softens every sharp effect', () => {
+    const tl = buildTimeline(parseStory(story))
+    expect(tl.look).toBe('gentle')
+    expect(tl.keys.length).toBeGreaterThan(5)
+    for (const k of tl.keys) expect(['bloom', 'whisper', 'echo', 'hand']).toContain(k.effect)
+    expect(GENTLE_EFFECT.flash).toBe('bloom')
+    expect(maxFlashesPerSecond(tl.keys, tl.subliminals)).toBeLessThan(2)
+  })
+
+  it('shows one key phrase at a time, with only a short crossfade', () => {
+    const { keys } = buildTimeline(parseStory(story))
+    for (let i = 1; i < keys.length; i++) {
+      expect(keys[i - 1].endMs - keys[i].startMs).toBeLessThanOrEqual(400 + Math.max(0, keys[i - 1].spokenEndMs - keys[i].startMs))
+    }
+  })
+})
+
+describe('reading lines', () => {
+  it('splits a beat into sentences with rising word times and key spans', () => {
+    const tl = buildTimeline(parseStory('[induce]\nBreathe in slowly. Now *let go* of the day.'))
+    const lines = tl.beats[0].lines
+    expect(lines.map((l) => l.text)).toEqual(['Breathe in slowly.', 'Now let go of the day.'])
+    const [, second] = lines
+    expect(second.keySpans).toEqual([[4, 10]])
+    expect(second.text.slice(4, 10)).toBe('let go')
+    second.words.forEach((w, i) => i && expect(w.startMs).toBeGreaterThan(second.words[i - 1].startMs))
+    expect(lineAt(tl, (second.startMs + second.endMs) / 2)?.text).toBe(second.text)
+    expect(lineAt(tl, 10)).toBeNull()
+  })
+
+  it('splits very long sentences', () => {
+    const long = 'one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen.'
+    const lines = buildTimeline(parseStory(long)).beats[0].lines
+    expect(lines.length).toBe(2)
+    expect(lines.map((l) => l.text).join(' ')).toBe(long)
+  })
+})
+
+describe('soundtrack plan', () => {
+  const tl = buildTimeline(parseStory(STORY_SAMPLES[0].text), { voiceMs: Array(20).fill(4000) })
+
+  it('pads the whole story with one segment per chord change', () => {
+    const segs = padSegments(tl)
+    expect(segs[0].startMs).toBe(0)
+    expect(segs[segs.length - 1].endMs).toBe(tl.durationMs)
+    for (let i = 1; i < segs.length; i++) {
+      expect(segs[i].startMs).toBe(segs[i - 1].endMs)
+      expect(segs[i].chord).not.toBe(segs[i - 1].chord)
+    }
+    expect(segs.map((s) => s.chord)).toContain(STAGE_CHORDS.final)
+  })
+
+  it('ducks the music only while the voice speaks, merging close lines', () => {
+    const w = duckWindows(tl)
+    expect(w.length).toBeGreaterThan(0)
+    for (let i = 1; i < w.length; i++) expect(w[i].startMs).toBeGreaterThan(w[i - 1].endMs)
+    expect(duckWindows(buildTimeline(parseStory('Quiet.')))).toEqual([])
+  })
+
+  it('rests in theta, not delta, at the deepest stage', () => {
+    expect(STAGES.final.band).toBe('theta')
   })
 })

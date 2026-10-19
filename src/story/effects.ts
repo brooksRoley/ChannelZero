@@ -10,7 +10,10 @@
 import { mulberry32 } from '@/composables/useGlassComposer'
 import type { StoryStage } from './storyBeats'
 
-export type Effect = 'flash' | 'slam' | 'whisper' | 'type' | 'echo' | 'scatter' | 'hand'
+export type Effect = 'flash' | 'slam' | 'whisper' | 'type' | 'echo' | 'scatter' | 'hand' | 'bloom'
+
+/** 'gentle' keeps the story readable and the voice in front; 'bold' is the full attention set. */
+export type Look = 'gentle' | 'bold'
 
 export interface EffectSpec {
   label: string
@@ -30,7 +33,17 @@ export const EFFECTS: Record<Effect, EffectSpec> = {
   echo:    { label: 'Echo',    leadMs: 100, tailMs: 1800, minMs: 2400 },
   scatter: { label: 'Scatter', leadMs: 0,   tailMs: 1200, minMs: 2000 },
   hand:    { label: 'Hand',    leadMs: 150, tailMs: 1500, minMs: 2200 },
+  bloom:   { label: 'Bloom',   leadMs: 250, tailMs: 1600, minMs: 2600 },
 }
+
+/** Gentle look: anything sharp (strobe, punch, scatter, typing) softens to a bloom. */
+export const GENTLE_EFFECT: Record<Effect, Effect> = {
+  flash: 'bloom', slam: 'bloom', scatter: 'bloom', type: 'bloom',
+  whisper: 'whisper', echo: 'echo', hand: 'hand', bloom: 'bloom',
+}
+
+/** Overlap allowed between consecutive gentle keys, so one fades as the next arrives. */
+const SETTLE_XFADE_MS = 400
 
 /** Default rotation per stage: gentle while inducing, louder on re-induction. */
 export const STAGE_EFFECTS: Record<StoryStage, Effect[]> = {
@@ -82,6 +95,15 @@ export function guardFlashes<K extends KeyLike>(keys: K[]): K[] {
     }
     lastStrobeEnd = k.strobeEndMs
     return k
+  })
+}
+
+/** Gentle look: one key phrase at a time — each yields to the next with a short crossfade. */
+export function settleKeys<K extends KeyLike & { endMs: number }>(keys: K[]): K[] {
+  return keys.map((k, i) => {
+    const next = keys[i + 1]
+    if (!next || next.startMs >= k.endMs) return k
+    return { ...k, endMs: Math.max(next.startMs + SETTLE_XFADE_MS, k.spokenEndMs + SETTLE_XFADE_MS) }
   })
 }
 
