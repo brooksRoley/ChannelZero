@@ -7,8 +7,8 @@
         <header>
           <h1 class="text-white/90 text-lg font-light tracking-[0.25em] uppercase">Story Studio</h1>
           <p class="text-slate-500 text-xs mt-1 leading-relaxed">
-            Write a story in beats. Each beat is voiced, paced to its stage, and laid over your video with
-            synced phrases and a binaural beat that glides as the story deepens.
+            The story is read aloud; its key phrases land on screen as they're spoken — flashed, slammed,
+            whispered, typed — with subliminals underneath and a binaural beat that deepens with the story.
           </p>
         </header>
 
@@ -31,11 +31,17 @@
             class="w-full bg-white/[0.03] border border-white/[0.06] rounded-lg p-3 text-sm leading-relaxed text-slate-200 font-mono focus:outline-none focus:border-white/20"
           />
         </label>
-        <p class="text-[11px] text-slate-600 leading-relaxed">
-          Blank lines separate beats. Marker lines set the stage:
-          <code v-for="m in markers" :key="m" class="text-slate-400 mx-0.5">[{{ m }}]</code>
-          and <code class="text-slate-400">[pause 6]</code> holds in silence. With no markers the arc is automatic.
-        </p>
+        <details class="text-[11px] text-slate-500 leading-relaxed">
+          <summary class="cursor-pointer text-slate-400">Markup</summary>
+          <ul class="mt-2 space-y-1">
+            <li>Blank lines separate beats.</li>
+            <li><code>*key phrase*</code> shows a phrase as it's spoken; <code>*flash:let go*</code> picks the effect —
+              <code v-for="e in effectNames" :key="e" class="mx-0.5">{{ e }}</code>.</li>
+            <li>Stage lines: <code v-for="m in markers" :key="m" class="mx-0.5">[{{ m }}]</code>. Without any, the arc is automatic.</li>
+            <li><code>[subliminal calm, safe, deeper]</code> flashes those words for a frame or two from then on; <code>[subliminal off]</code> stops.</li>
+            <li><code>[pause 6]</code> holds in silence.</li>
+          </ul>
+        </details>
 
         <div class="grid grid-cols-2 gap-3 text-xs">
           <label class="field">
@@ -46,26 +52,49 @@
             </span>
           </label>
           <label class="field">
-            <span>Overlay</span>
-            <select v-model="style" class="px-3 py-2 rounded-md bg-white/[0.04] border border-white/[0.06]">
-              <option value="soft">Soft serif</option>
-              <option value="glass">Glass (exclusion caps)</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Reading pace · {{ wpm }} wpm</span>
+            <span>Reading pace (unvoiced beats) · {{ wpm }} wpm</span>
             <input v-model.number="wpm" type="range" min="90" max="220" step="5" />
           </label>
-          <div class="field">
-            <span>Voice</span>
-            <button class="chip w-full" :class="{ 'chip--on': voiceOn }" :disabled="kokoroStatus === 'downloading'" @click="toggleVoice">
-              {{ voiceLabel }}
+          <label class="flex items-center gap-2 text-slate-400">
+            <input v-model="captions" type="checkbox" /> Subtitles under the effects
+          </label>
+        </div>
+
+        <!-- Voice -->
+        <fieldset class="space-y-3 rounded-lg border border-white/[0.06] p-3">
+          <legend class="px-1 text-xs text-slate-400">Voice</legend>
+          <div class="flex gap-2 flex-wrap" role="radiogroup" aria-label="Voice source">
+            <button v-for="v in voiceModes" :key="v.id" class="chip" role="radio" :aria-checked="voiceMode === v.id" :class="{ 'chip--on': voiceMode === v.id }" @click="setVoiceMode(v.id)">
+              {{ v.label }}
             </button>
           </div>
-        </div>
-        <p v-if="kokoroStatus === 'error'" class="text-[11px] text-amber-400/80">
-          The local voice couldn't load, so this build will be text and tones only.
-        </p>
+
+          <template v-if="voiceMode === 'pack'">
+            <ol class="text-[11px] text-slate-500 leading-relaxed list-decimal pl-4 space-y-1">
+              <li><button class="link" @click="downloadVoiceScript">Download the voice script</button> ({{ scriptChars }} characters ≈ {{ scriptChars }} credits on Multilingual v2, half on Flash).</li>
+              <li>Run <code class="text-slate-400">node tools/voice/elevenlabs.mjs {{ scriptFileName }} --voice &lt;id&gt;</code> with <code>ELEVENLABS_API_KEY</code> set.</li>
+              <li>
+                <label class="link relative cursor-pointer">Load the pack folder
+                  <input type="file" multiple webkitdirectory class="absolute inset-0 opacity-0 cursor-pointer w-full" @change="onPackPick" />
+                </label>
+                — or attach an mp3 to any beat in the list.
+              </li>
+            </ol>
+            <p class="text-[11px]" :class="voicedCount === voiceableCount ? 'text-emerald-400/80' : 'text-slate-400'">
+              {{ voicedCount }} of {{ voiceableCount }} beats have audio · {{ alignedCount }} with exact word timing
+              <span v-if="packMeta?.voice_name" class="text-slate-600">· {{ packMeta.voice_name }}</span>
+            </p>
+            <p v-if="packSkipped.length" class="text-[11px] text-amber-400/70">Skipped {{ packSkipped.length }} file(s) that aren't beat audio: {{ packSkipped.slice(0, 3).join(', ') }}</p>
+            <label class="flex items-center gap-2 text-[11px] text-slate-400">
+              <input v-model="credit" type="checkbox" /> Credit “Voice: ElevenLabs” at the end (required on the free plan)
+            </label>
+          </template>
+
+          <p v-else-if="voiceMode === 'local'" class="text-[11px] text-slate-500">
+            {{ kokoroStatus === 'downloading' ? 'Downloading the on-device voice (~90 MB, once)…' : kokoroStatus === 'error' ? "The on-device voice couldn't load — beats will be silent." : 'On-device neural voice. No account needed; less expressive than ElevenLabs.' }}
+          </p>
+          <p v-else class="text-[11px] text-slate-500">Silent: key phrases are paced by reading speed.</p>
+        </fieldset>
 
         <button
           class="w-full px-6 py-3 rounded-full border text-sm tracking-wider transition-all"
@@ -92,7 +121,7 @@
         <video ref="videoRef" :src="videoUrl ?? undefined" class="absolute w-px h-px opacity-0 pointer-events-none" muted playsinline preload="auto" @loadedmetadata="onVideoLoaded" />
 
         <template v-if="timeline">
-          <!-- Stage bar -->
+          <!-- Stage bar with key-phrase ticks -->
           <div
             class="relative flex h-3 rounded-full overflow-hidden bg-white/[0.04] cursor-pointer"
             role="slider"
@@ -111,40 +140,61 @@
               v-for="b in timeline.beats"
               :key="b.index"
               :class="`stage-${b.stage}`"
-              class="h-full border-r border-black/40"
+              class="h-full border-r border-black/40 opacity-70"
               :style="{ width: pct(b.endMs - b.startMs) }"
               :title="`${b.stage} · ${formatClock(b.startMs)}`"
             />
+            <div v-for="(k, i) in timeline.keys" :key="`k${i}`" class="absolute top-0 bottom-0 w-px bg-white/70" :style="{ left: pct(k.spokenStartMs) }" />
             <div class="absolute top-0 bottom-0 w-0.5 bg-white" :style="{ left: pct(cursorMs) }" />
           </div>
 
-          <div class="flex items-center gap-3 text-xs">
+          <div class="flex items-center gap-3 text-xs flex-wrap">
             <button class="chip" :disabled="isRecording" @click="togglePlay">{{ isPlaying ? 'Pause' : 'Play' }}</button>
             <span class="font-mono text-slate-500">{{ formatClock(cursorMs) }} / {{ formatClock(timeline.durationMs) }}</span>
             <span class="text-slate-600">{{ beatHzLabel }}</span>
+            <span class="text-slate-600" :title="'Most flashes in any one second (WCAG 2.3.1 limit is 3)'">peak {{ flashRate }} flash/s</span>
             <span class="flex-1" />
             <button v-if="!isRecording" class="chip chip--rec" :disabled="stale || isPlaying" @click="record">Export video</button>
             <button v-else class="chip" @click="player.stop()">Cancel export</button>
           </div>
           <p class="text-[11px] text-slate-600 leading-relaxed">
-            Export records in real time ({{ formatClock(timeline.durationMs) }}) and saves an
-            {{ exportExt }} file. Keep this tab in front while it runs. Headphones carry the binaural beat.
-            <span v-if="stale" class="text-amber-400/70">The story changed — rebuild before exporting.</span>
+            Export records in real time ({{ formatClock(timeline.durationMs) }}) and saves an {{ exportExt }} file.
+            Keep this tab in front while it runs. Headphones carry the binaural beat.
+            <span v-if="stale" class="text-amber-400/70">The story or voice changed — rebuild before exporting.</span>
           </p>
 
           <!-- Beat list -->
-          <ol class="space-y-1 max-h-[40vh] overflow-y-auto pr-1">
-            <li v-for="b in timeline.beats" :key="b.index">
-              <button
-                class="w-full text-left flex gap-3 items-baseline px-2 py-1.5 rounded-md hover:bg-white/[0.04]"
-                :class="{ 'bg-white/[0.06]': currentBeat === b.index }"
-                @click="seek(b.startMs)"
-              >
-                <span class="font-mono text-[10px] text-slate-600 w-9 shrink-0">{{ formatClock(b.startMs) }}</span>
+          <ol class="space-y-1 max-h-[44vh] overflow-y-auto pr-1">
+            <li v-for="b in timeline.beats" :key="b.index" class="rounded-md" :class="{ 'bg-white/[0.06]': currentBeat === b.index }">
+              <div class="flex gap-3 items-baseline px-2 pt-1.5">
+                <button class="font-mono text-[10px] text-slate-600 w-9 shrink-0 hover:text-slate-300" @click="seek(b.startMs)">{{ formatClock(b.startMs) }}</button>
                 <span class="stage-chip shrink-0" :class="`stage-${b.stage}`">{{ b.stage }}</span>
-                <span class="text-xs text-slate-400 truncate">{{ b.text || `— silence ${Math.round((b.pauseMs ?? 0) / 1000)}s —` }}</span>
-                <span v-if="b.voiced" class="ml-auto text-[10px] text-slate-600 shrink-0" aria-label="voiced">♪</span>
-              </button>
+                <button class="text-xs text-slate-400 text-left truncate flex-1 hover:text-slate-200" @click="seek(b.startMs)">
+                  {{ b.text || `— silence ${Math.round((b.pauseMs ?? 0) / 1000)}s —` }}
+                </button>
+                <template v-if="b.text && voiceMode === 'pack'">
+                  <span v-if="clips.get(b.id)" class="text-[10px] shrink-0" :class="clips.get(b.id)?.alignment ? 'text-emerald-400/70' : 'text-slate-500'" :title="clips.get(b.id)?.name">
+                    ♪{{ clips.get(b.id)?.alignment ? ' timed' : '' }}
+                  </span>
+                  <button class="text-[10px] text-slate-600 hover:text-slate-300 shrink-0" title="Copy the line to paste into ElevenLabs" @click="copyLine(b.text)">copy</button>
+                  <label class="relative text-[10px] text-slate-600 hover:text-slate-300 shrink-0 cursor-pointer" :title="`Attach an mp3 for this beat (${b.id})`">
+                    {{ clips.get(b.id) ? 'replace' : 'attach' }}
+                    <input type="file" accept="audio/*" class="absolute inset-0 opacity-0 cursor-pointer w-full" @change="onBeatAudio(b.id, $event)" />
+                  </label>
+                </template>
+                <span v-else-if="b.voiced" class="text-[10px] text-slate-600 shrink-0">♪</span>
+              </div>
+              <div v-if="keysByBeat.get(b.index)?.length" class="flex gap-1.5 flex-wrap pl-14 pb-1.5 pt-1">
+                <button
+                  v-for="(k, i) in keysByBeat.get(b.index)"
+                  :key="i"
+                  class="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.05] text-slate-400 hover:bg-white/10"
+                  @click="seek(k.startMs)"
+                >
+                  <span class="text-slate-600">{{ k.effect }}</span> {{ k.text }}
+                </button>
+              </div>
+              <div v-else class="pb-1.5" />
             </li>
           </ol>
         </template>
@@ -154,37 +204,96 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, computed, watch, nextTick, onUnmounted } from 'vue'
+import { ref, shallowRef, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { STORY_SAMPLES } from '@/data/storySamples'
 import {
   parseStory, buildTimeline, beatIndexAt, entrainmentAt, formatClock, STAGES,
-  type Timeline, type StoryStage,
+  type Timeline, type TimedKey, type StoryStage, type Alignment,
 } from '@/story/storyBeats'
+import { EFFECTS, maxFlashesPerSecond } from '@/story/effects'
+import { loadEffectFonts } from '@/story/drawEffects'
 import { renderSoundtrack, voiceBuffer } from '@/story/renderSoundtrack'
-import { useStoryPlayer, drawStoryFrame, canvasSizeFor, STORY_FADE_S, type OverlayStyle } from '@/story/useStoryPlayer'
+import { readPack, decodeAudioFile, voiceScript, type VoiceClip, type PackMeta } from '@/story/voicePack'
+import { useStoryPlayer, drawStoryFrame, canvasSizeFor, STORY_FADE_S, type FrameOptions } from '@/story/useStoryPlayer'
 import { pickMime } from '@/composables/useGlassExport'
 import { useVoice } from '@/composables/useVoice'
 
 const markers = Object.keys(STAGES) as StoryStage[]
+const effectNames = Object.keys(EFFECTS)
 
 const text = ref(STORY_SAMPLES[0].text)
 const wpm = ref(140)
-const style = ref<OverlayStyle>('soft')
-const voiceOn = ref(false)
+const captions = ref(false)
+const credit = ref(true)
 
 const parsed = computed(() => parseStory(text.value))
 
-// ── Voice (local Kokoro only — Web Speech can't be recorded) ──
+// ── Voice source ──
+type VoiceMode = 'none' | 'local' | 'pack'
+const voiceModes: { id: VoiceMode; label: string }[] = [
+  { id: 'none', label: 'Silent' },
+  { id: 'local', label: 'On-device voice' },
+  { id: 'pack', label: 'ElevenLabs pack' },
+]
+const voiceMode = ref<VoiceMode>('pack')
 const { synthesize, kokoroStatus, enableKokoro } = useVoice()
 
-const voiceLabel = computed(() => {
-  if (kokoroStatus.value === 'downloading') return 'Downloading voice (~90 MB)…'
-  return voiceOn.value ? 'Local voice on' : 'Add local voice'
-})
+async function setVoiceMode(mode: VoiceMode) {
+  voiceMode.value = mode
+  if (mode === 'local' && kokoroStatus.value !== 'ready') await enableKokoro()
+}
 
-async function toggleVoice() {
-  if (voiceOn.value) { voiceOn.value = false; return }
-  voiceOn.value = kokoroStatus.value === 'ready' || (await enableKokoro())
+/** Pack audio by beat id. Survives story edits — unchanged lines keep their audio. */
+const clips = shallowRef(new Map<string, VoiceClip>())
+const packMeta = ref<PackMeta | null>(null)
+const packSkipped = ref<string[]>([])
+/** Bumped whenever clips change, so the timeline goes stale. */
+const clipsVersion = ref(0)
+
+const voiceable = computed(() => [...new Set(parsed.value.filter((b) => b.text).map((b) => b.id))])
+const voiceableCount = computed(() => voiceable.value.length)
+const voicedCount = computed(() => (clipsVersion.value, voiceable.value.filter((id) => clips.value.has(id)).length))
+const alignedCount = computed(() => (clipsVersion.value, voiceable.value.filter((id) => clips.value.get(id)?.alignment).length))
+const scriptChars = computed(() => voiceScript(parsed.value).beats.reduce((n, b) => n + b.text.length, 0))
+const scriptFileName = 'story-voice-script.json'
+
+function downloadVoiceScript() {
+  const blob = new Blob([JSON.stringify(voiceScript(parsed.value), null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = scriptFileName
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 5000)
+}
+
+async function onPackPick(e: Event) {
+  const files = [...((e.target as HTMLInputElement).files ?? [])]
+  if (!files.length) return
+  const { clips: loaded, meta, skipped } = await readPack(files)
+  const next = new Map(clips.value)
+  loaded.forEach((c, id) => next.set(id, c))
+  clips.value = next
+  packMeta.value = meta ?? packMeta.value
+  packSkipped.value = skipped
+  clipsVersion.value++
+}
+
+async function onBeatAudio(id: string, e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  try {
+    const next = new Map(clips.value)
+    next.set(id, { buffer: await decodeAudioFile(file), alignment: null, name: file.name })
+    clips.value = next
+    clipsVersion.value++
+  } catch {
+    buildError.value = `Couldn't decode ${file.name}.`
+  }
+}
+
+function copyLine(line: string) {
+  void navigator.clipboard?.writeText(line).catch(() => { /* clipboard blocked */ })
 }
 
 // ── Background video ──
@@ -232,7 +341,7 @@ const building = ref(false)
 const buildStep = ref('')
 const buildError = ref('')
 const builtKey = ref('')
-const inputKey = computed(() => JSON.stringify([text.value, wpm.value, voiceOn.value]))
+const inputKey = computed(() => JSON.stringify([text.value, wpm.value, voiceMode.value, clipsVersion.value, kokoroStatus.value]))
 const stale = computed(() => !timeline.value || builtKey.value !== inputKey.value)
 
 async function build() {
@@ -240,9 +349,16 @@ async function build() {
   buildError.value = ''
   const key = inputKey.value
   try {
+    await loadEffectFonts()
     const beats = parseStory(text.value)
     const voices: (AudioBuffer | null)[] = beats.map(() => null)
-    if (voiceOn.value && kokoroStatus.value === 'ready') {
+    const alignments: (Alignment | null)[] = beats.map(() => null)
+    if (voiceMode.value === 'pack') {
+      beats.forEach((b, i) => {
+        const clip = b.text ? clips.value.get(b.id) : undefined
+        if (clip) { voices[i] = clip.buffer; alignments[i] = clip.alignment }
+      })
+    } else if (voiceMode.value === 'local' && kokoroStatus.value === 'ready') {
       for (let i = 0; i < beats.length; i++) {
         if (!beats[i].text) continue
         buildStep.value = `Voicing beat ${i + 1} of ${beats.length}…`
@@ -250,7 +366,11 @@ async function build() {
         if (raw) voices[i] = voiceBuffer(raw.audio, raw.sampling_rate)
       }
     }
-    const tl = buildTimeline(beats, { wpm: wpm.value, voiceMs: voices.map((v) => (v ? v.duration * 1000 : null)) })
+    const tl = buildTimeline(beats, {
+      wpm: wpm.value,
+      voiceMs: voices.map((v) => (v ? v.duration * 1000 : null)),
+      alignments,
+    })
     buildStep.value = 'Rendering soundtrack…'
     soundtrack.value = await renderSoundtrack(tl, voices, { fadeS: STORY_FADE_S })
     timeline.value = tl
@@ -261,7 +381,7 @@ async function build() {
     drawStill()
   } catch (err) {
     console.error('[story] build failed', err)
-    buildError.value = 'Building the timeline failed. Try a shorter story, or turn the voice off.'
+    buildError.value = 'Building the timeline failed. Try a shorter story, or a different voice source.'
   } finally {
     building.value = false
   }
@@ -273,15 +393,20 @@ const isPlaying = computed(() => player.state.value === 'playing')
 const isRecording = computed(() => player.state.value === 'recording')
 const cursorMs = ref(0)
 
+const frameOptions = computed<FrameOptions>(() => ({
+  captions: captions.value,
+  credit: voiceMode.value === 'pack' && credit.value && voicedCount.value > 0 ? 'Voice: ElevenLabs' : undefined,
+}))
+
 watch(player.clockMs, (t) => { if (player.state.value !== 'idle') cursorMs.value = t })
-watch(style, () => drawStill())
+watch(frameOptions, () => drawStill())
 
 function drawStill() {
   const c = canvasRef.value
   const tl = timeline.value
   const ctx = c?.getContext('2d')
   if (!ctx || !tl || player.state.value !== 'idle') return
-  drawStoryFrame(ctx, tl, cursorMs.value, backgroundVideo(), style.value)
+  drawStoryFrame(ctx, tl, cursorMs.value, backgroundVideo(), frameOptions.value)
 }
 
 function start(opts: { record: boolean }) {
@@ -291,7 +416,7 @@ function start(opts: { record: boolean }) {
     video: backgroundVideo(),
     soundtrack: soundtrack.value,
     timeline: timeline.value,
-    style: style.value,
+    frame: frameOptions.value,
     record: opts.record,
     fromMs: cursorMs.value >= timeline.value.durationMs - 500 ? 0 : cursorMs.value,
   })
@@ -325,10 +450,17 @@ const beatHzLabel = computed(() => {
   if (!timeline.value) return ''
   return `${entrainmentAt(timeline.value, cursorMs.value).beatHz.toFixed(1)} Hz beat`
 })
+const keysByBeat = computed(() => {
+  const m = new Map<number, TimedKey[]>()
+  for (const k of timeline.value?.keys ?? []) m.set(k.beat, [...(m.get(k.beat) ?? []), k])
+  return m
+})
+const flashRate = computed(() => (timeline.value ? maxFlashesPerSecond(timeline.value.keys, timeline.value.subliminals) : 0))
 
 const pct = (ms: number) => `${(ms / (timeline.value?.durationMs || 1)) * 100}%`
 const exportExt = typeof MediaRecorder !== 'undefined' && pickMime().startsWith('video/mp4') ? 'MP4' : 'WebM'
 
+onMounted(() => { void loadEffectFonts() })
 onUnmounted(() => {
   player.stop()
   if (videoUrl.value) URL.revokeObjectURL(videoUrl.value)
@@ -343,6 +475,8 @@ onUnmounted(() => {
 .chip:disabled { @apply opacity-40 cursor-not-allowed; }
 .chip--on { @apply bg-white/10 border-white/25 text-white/90; }
 .chip--rec { @apply border-rose-400/30 text-rose-200/80; }
+
+.link { @apply text-slate-300 underline decoration-white/20 underline-offset-2 hover:decoration-white/60; }
 
 .field { @apply flex flex-col gap-1.5 text-slate-500; }
 

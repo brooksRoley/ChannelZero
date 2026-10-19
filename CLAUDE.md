@@ -27,6 +27,10 @@ embedded psychoanalysis layer. The product is, in priority order:
   karma ledger). The paid OpenAI embed key is intentionally **unfunded** — `/api/health/embeddings`
   returns 429 `insufficient_quota` and Pinecone is empty. Embedding/matching code degrades
   gracefully and should stay dormant. Grow **OAuth insights** instead of embeddings.
+- **Story Studio voice** (`/story`) uses **ElevenLabs free tier, producer-side only**: `tools/voice/elevenlabs.mjs`
+  runs locally with the producer's `ELEVENLABS_API_KEY` and writes a voice pack (mp3 + timestamps) that is
+  loaded into the page. The app never calls ElevenLabs. Free plan = non-commercial + attribution (the export
+  credits "Voice: ElevenLabs"). One account only — don't rotate trial accounts.
 - Prefer work that runs entirely on **already-installed packages** (Tone.js, Matter.js, Web
   Audio, Canvas). Avoid anything that needs a paid API to function.
 
@@ -151,6 +155,7 @@ embedded psychoanalysis layer. The product is, in priority order:
 | `/hypno` | no | Hypno visualization |
 | `/spiral` | no | Spiral visualization |
 | `/studio` | no | Glass studio |
+| `/story` | no | Story Studio — voiced story → MP4 with key-phrase effects + subliminals |
 | `/liquidglass` | no | Liquid glass experiment |
 | `/fitting` | no | Body/swimsuit configurator (standalone) |
 | `/poll` | no | Archetype poll |

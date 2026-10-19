@@ -5,6 +5,10 @@
 //
 //   [induce] [deepen] [emerge] [reinduce] [final] [wake]   — stage for what follows
 //   [pause 6]                                               — silent hold, seconds
+//   [subliminal calm, safe, deeper]                         — subliminal pool from here on ([subliminal off] clears)
+//
+// Inside a beat, *key phrase* puts that phrase on screen as it is spoken, with
+// an attention effect rotated per stage; *flash:let go* picks the effect.
 //
 // `buildTimeline` lays the beats on one clock. The SAME timeline drives the
 // offline soundtrack (voice placement + binaural glides) and the text overlay
@@ -13,6 +17,7 @@
 import type { Band, MotionType } from '@/composables/studioTypes'
 import { BANDS } from '@/composables/useStudioBinaural'
 import { chunkPhrases, splitWords, SENTENCE_HOLD, type Phrase } from './phrases'
+import { EFFECTS, STAGE_EFFECTS, keyWindow, guardFlashes, scheduleSubliminals, type Effect, type SubliminalFlash } from './effects'
 
 // ── Stages ───────────────────────────────────────────────────────
 
@@ -43,16 +48,65 @@ const STAGE_NAMES = Object.keys(STAGES) as StoryStage[]
 
 // ── Parsing ──────────────────────────────────────────────────────
 
+export interface KeyMark {
+  text: string
+  /** Explicit effect; otherwise rotated from the stage's set at build time. */
+  effect?: Effect
+  /** Offsets into the beat's spoken text. */
+  charStart: number
+  charEnd: number
+}
+
 export interface StoryBeat {
   stage: StoryStage
-  /** Empty for a [pause] beat. */
+  /** Spoken text, markup removed. Empty for a [pause] beat. */
   text: string
+  /** Stable id from the spoken text — names the beat's voice file in a pack. */
+  id: string
+  keys: KeyMark[]
+  /** Subliminal pool in effect for this beat. */
+  subliminal: string[]
   /** Set only on [pause] beats. */
   pauseMs?: number
 }
 
 const STAGE_RE = new RegExp(`^\\[(${STAGE_NAMES.join('|')})\\]$`, 'i')
 const PAUSE_RE = /^\[pause\s+(\d+(?:\.\d+)?)\s*s?\]$/i
+const SUBLIMINAL_RE = /^\[subliminal\b\s*(.*)\]$/i
+const KEY_RE = new RegExp(`\\*(?:(${Object.keys(EFFECTS).join('|')}):)?([^*]+)\\*`, 'gi')
+
+/** FNV-1a — a short stable id for a line of text. */
+export function textId(text: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return 'b' + (h >>> 0).toString(16).padStart(8, '0')
+}
+
+/** Strip *key* markup from a paragraph, recording each key's place in the clean text. */
+export function extractKeys(marked: string): { text: string; keys: KeyMark[] } {
+  const keys: KeyMark[] = []
+  let text = ''
+  let last = 0
+  for (const m of marked.matchAll(KEY_RE)) {
+    text += marked.slice(last, m.index)
+    const phrase = m[2].trim()
+    if (phrase) {
+      keys.push({
+        text: phrase,
+        effect: m[1] ? (m[1].toLowerCase() as Effect) : undefined,
+        charStart: text.length,
+        charEnd: text.length + phrase.length,
+      })
+    }
+    text += phrase
+    last = m.index! + m[0].length
+  }
+  text += marked.slice(last)
+  return { text, keys }
+}
 
 /**
  * Split a story into beats. Without any stage markers the arc is assigned
@@ -61,26 +115,37 @@ const PAUSE_RE = /^\[pause\s+(\d+(?:\.\d+)?)\s*s?\]$/i
 export function parseStory(source: string): StoryBeat[] {
   const beats: StoryBeat[] = []
   let stage: StoryStage = 'induce'
+  let subliminal: string[] = []
   let sawMarker = false
   let para: string[] = []
 
   const flush = () => {
-    const text = para.join(' ').replace(/\s+/g, ' ').trim()
-    if (text) beats.push({ stage, text })
+    const marked = para.join(' ').replace(/\s+/g, ' ').trim()
     para = []
+    if (!marked) return
+    const { text, keys } = extractKeys(marked)
+    beats.push({ stage, text, id: textId(text), keys, subliminal })
   }
 
   for (const raw of source.split(/\r?\n/)) {
     const line = raw.trim()
     const stageHit = STAGE_RE.exec(line)
     const pauseHit = PAUSE_RE.exec(line)
+    const subHit = SUBLIMINAL_RE.exec(line)
     if (stageHit) {
       flush()
       stage = stageHit[1].toLowerCase() as StoryStage
       sawMarker = true
     } else if (pauseHit) {
       flush()
-      beats.push({ stage, text: '', pauseMs: Math.round(parseFloat(pauseHit[1]) * 1000) })
+      beats.push({
+        stage, text: '', id: '', keys: [], subliminal,
+        pauseMs: Math.round(parseFloat(pauseHit[1]) * 1000),
+      })
+    } else if (subHit) {
+      flush()
+      const words = subHit[1].split(',').map((w) => w.trim()).filter(Boolean)
+      subliminal = words.length === 1 && words[0].toLowerCase() === 'off' ? [] : words
     } else if (!line) {
       flush()
     } else {
@@ -111,6 +176,30 @@ export interface TimedPhrase {
   endMs: number
 }
 
+export interface TimedKey {
+  text: string
+  effect: Effect
+  /** When the phrase is spoken. */
+  spokenStartMs: number
+  spokenEndMs: number
+  /** When it is on screen (effect lead-in / hold included). */
+  startMs: number
+  endMs: number
+  /** End of a flash strobe (== startMs for other effects). */
+  strobeEndMs: number
+  /** Per-key seed for deterministic placement / jitter. */
+  seed: number
+  /** Index of the beat it belongs to. */
+  beat: number
+}
+
+/** ElevenLabs `/with-timestamps` alignment for one beat. */
+export interface Alignment {
+  characters: string[]
+  character_start_times_seconds: number[]
+  character_end_times_seconds: number[]
+}
+
 export interface TimedBeat extends StoryBeat {
   index: number
   startMs: number
@@ -121,6 +210,8 @@ export interface TimedBeat extends StoryBeat {
   carrierHz: number
   /** Voice starts at startMs when the beat has a rendered line. */
   voiced: boolean
+  /** True when key/caption timing comes from real character timestamps. */
+  aligned: boolean
   phrases: TimedPhrase[]
 }
 
@@ -129,11 +220,15 @@ export interface Timeline {
   leadInMs: number
   tailMs: number
   beats: TimedBeat[]
+  keys: TimedKey[]
+  subliminals: SubliminalFlash[]
 }
 
 export interface TimelineOptions {
   /** Rendered voice length per beat (ms), null where a beat is unvoiced. */
   voiceMs?: (number | null | undefined)[]
+  /** Character timestamps per beat (ElevenLabs packs), null where unknown. */
+  alignments?: (Alignment | null | undefined)[]
   wpm?: number
   /** Binaural-only settle before the first beat. */
   leadInMs?: number
@@ -152,6 +247,44 @@ function phraseWeight(p: Phrase): number {
   return Math.max(1, p.text.length) * (p.isPausePoint ? SENTENCE_HOLD : 1)
 }
 
+/** Alignment usable only if it spells exactly the beat's spoken text. */
+function matchesText(al: Alignment | null | undefined, text: string): al is Alignment {
+  return !!al && al.characters.length === text.length && al.characters.join('') === text
+}
+
+/**
+ * Per-beat clock: ms offset (from beat start) at which character `i` is spoken.
+ * Exact with an alignment; otherwise interpolated through the phrase spans.
+ */
+function charClock(
+  text: string,
+  phrases: Phrase[],
+  spans: { startMs: number; endMs: number }[],
+  al: Alignment | null,
+): (i: number, edge?: 'start' | 'end') => number {
+  if (al) {
+    return (i, edge = 'start') => {
+      const k = Math.max(0, Math.min(text.length - 1, i))
+      return (edge === 'end' ? al.character_end_times_seconds[k] : al.character_start_times_seconds[k]) * 1000
+    }
+  }
+  // Char offset of each phrase in the text (phrases are word runs joined by one space).
+  const starts: number[] = []
+  let c = 0
+  for (const p of phrases) {
+    starts.push(c)
+    c += p.text.length + 1
+  }
+  return (i) => {
+    let j = starts.length - 1
+    while (j > 0 && starts[j] > i) j--
+    const span = spans[j]
+    if (!span) return 0
+    const k = Math.min(1, Math.max(0, (i - starts[j]) / Math.max(1, phrases[j].text.length)))
+    return span.startMs + (span.endMs - span.startMs) * k
+  }
+}
+
 export function buildTimeline(beats: StoryBeat[], opts: TimelineOptions = {}): Timeline {
   const wpm = opts.wpm ?? 150
   const leadInMs = opts.leadInMs ?? 3000
@@ -159,6 +292,8 @@ export function buildTimeline(beats: StoryBeat[], opts: TimelineOptions = {}): T
   const msPerWord = 60000 / wpm
 
   let t = leadInMs
+  let keyCount = 0
+  const keys: TimedKey[] = []
   const timed: TimedBeat[] = beats.map((beat, index) => {
     const spec = STAGES[beat.stage]
     const band = BANDS[spec.band]
@@ -168,7 +303,7 @@ export function buildTimeline(beats: StoryBeat[], opts: TimelineOptions = {}): T
       t += beat.pauseMs
       return {
         ...beat, index, startMs, bodyEndMs: t, endMs: t,
-        beatHz: band.beatHz, carrierHz: band.carrierHz, voiced: false, phrases: [],
+        beatHz: band.beatHz, carrierHz: band.carrierHz, voiced: false, aligned: false, phrases: [],
       }
     }
 
@@ -180,28 +315,54 @@ export function buildTimeline(beats: StoryBeat[], opts: TimelineOptions = {}): T
     const voiceMs = opts.voiceMs?.[index] ?? null
     const voiced = voiceMs != null && voiceMs > 0
     const bodyMs = Math.max(readMs, voiced ? voiceMs! : 0)
+    const rawAl = opts.alignments?.[index]
+    const al = voiced && matchesText(rawAl, beat.text) ? rawAl : null
 
-    // Spread phrases across the spoken (or read) span, weighted by length, so
-    // each phrase is on screen roughly while it is being said.
+    // Without timestamps, spread phrases across the spoken (or read) span,
+    // weighted by length, so each is on screen roughly while it is said.
     const totalWeight = phrases.reduce((s, p) => s + phraseWeight(p), 0)
-    let cursor = startMs
-    const timedPhrases: TimedPhrase[] = phrases.map((p, i) => {
+    let cursor = 0
+    const spans = phrases.map((p) => {
       const len = (phraseWeight(p) / totalWeight) * bodyMs
-      const ph = { text: p.text, startMs: cursor, endMs: cursor + len }
+      const span = { startMs: cursor, endMs: cursor + len }
       cursor += len
-      if (i === phrases.length - 1) ph.endMs = startMs + bodyMs + Math.min(LINGER_MS, spec.breathMs)
+      return span
+    })
+    const at = charClock(beat.text, phrases, spans, al)
+
+    let charPos = 0
+    const timedPhrases: TimedPhrase[] = phrases.map((p, i) => {
+      const ph = { text: p.text, startMs: startMs + at(charPos), endMs: 0 }
+      charPos += p.text.length + 1
+      ph.endMs = i === phrases.length - 1
+        ? startMs + bodyMs + Math.min(LINGER_MS, spec.breathMs)
+        : startMs + at(charPos)
       return ph
     })
+
+    for (const k of beat.keys) {
+      const rotation = STAGE_EFFECTS[beat.stage]
+      const effect = k.effect ?? rotation[keyCount % rotation.length]
+      const spokenStartMs = startMs + at(k.charStart)
+      const spokenEndMs = startMs + at(k.charEnd - 1, 'end')
+      keys.push({ text: k.text, effect, spokenStartMs, spokenEndMs, ...keyWindow(effect, spokenStartMs, spokenEndMs), seed: keyCount + 1, beat: index })
+      keyCount++
+    }
 
     const bodyEndMs = startMs + bodyMs
     t = bodyEndMs + spec.breathMs
     return {
       ...beat, index, startMs, bodyEndMs, endMs: t,
-      beatHz: band.beatHz, carrierHz: band.carrierHz, voiced, phrases: timedPhrases,
+      beatHz: band.beatHz, carrierHz: band.carrierHz, voiced, aligned: !!al, phrases: timedPhrases,
     }
   })
 
-  return { durationMs: t + tailMs, leadInMs, tailMs, beats: timed }
+  const safeKeys = guardFlashes(keys)
+  return {
+    durationMs: t + tailMs, leadInMs, tailMs, beats: timed,
+    keys: safeKeys,
+    subliminals: scheduleSubliminals(timed, safeKeys),
+  }
 }
 
 // ── Sampling ─────────────────────────────────────────────────────

@@ -47,3 +47,6 @@ server/venv/
 
 # Claude Code local state (agent worktrees, plans)
 .claude/
+
+# Local voice packs (tools/voice/elevenlabs.mjs output)
+voice-packs/

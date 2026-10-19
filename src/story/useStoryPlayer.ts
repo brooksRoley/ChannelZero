@@ -3,38 +3,38 @@ import { drawFrame, drawFade, safeVisualHz } from '@/composables/useGlassCompose
 import { pickMime, downloadRecording } from '@/composables/useGlassExport'
 import { makeDefaultTextLayer, type TextLayer } from '@/composables/studioTypes'
 import { sessionEnvelope } from '@/composables/studioTrim'
-import { STAGES, frameAt, depthDimAt, type StoryStage, type Timeline } from './storyBeats'
+import { frameAt, depthDimAt, type Timeline } from './storyBeats'
+import { drawKeys, drawSubliminals, drawCredit } from './drawEffects'
 
 /**
  * Plays — and optionally records — a story: the pre-rendered soundtrack is
  * the master clock; each frame draws the looping background video (or a
- * breathing field), dims it with depth, and overlays the current phrase with
- * the Glass Studio's shared `drawFrame`. Recording taps the same canvas and
+ * breathing field), dims it with depth, then draws the key-phrase effects and
+ * subliminals (drawEffects) and, optionally, subtitles via the Glass Studio's
+ * shared `drawFrame`. Recording taps the same canvas and
  * soundtrack into a MediaRecorder (mp4 where the browser supports it).
  *
  * Recording runs in real time, like the studio export.
  */
 
-export type OverlayStyle = 'soft' | 'glass'
+export interface FrameOptions {
+  /** Show every phrase as a subtitle line under the key-phrase effects. */
+  captions: boolean
+  /** Attribution drawn over the closing seconds (e.g. "Voice: ElevenLabs"). */
+  credit?: string
+}
 
 /** Fade to/from black at the session edges, seconds (matches the soundtrack). */
 export const STORY_FADE_S = 3
 
-/** PURE: the single text layer for this frame's phrase. */
-export function overlayLayer(text: string, alpha: number, stage: StoryStage, style: OverlayStyle): TextLayer {
-  const glass = style === 'glass'
+/** PURE: the subtitle layer for this frame's phrase. */
+export function captionLayer(text: string, alpha: number): TextLayer {
   return makeDefaultTextLayer({
     content: [text],
-    font: {
-      family: glass ? 'system-ui, -apple-system, sans-serif' : 'Georgia, "Iowan Old Style", serif',
-      sizeVw: glass ? 7 : 4.6,
-      weight: glass ? 900 : 400,
-      letterSpacing: glass ? -0.02 : 0.01,
-      upper: glass,
-    },
-    style: { color: glass ? '#ffffff' : '#f4efe6', opacity: alpha, blend: glass ? 'exclusion' : 'normal' },
+    font: { family: 'Georgia, "Iowan Old Style", serif', sizeVw: 2.6, weight: 400, letterSpacing: 0.01, upper: false },
+    pos: { anchor: 'bc', dx: 0, dy: -2 },
+    style: { color: '#f4efe6', opacity: alpha * 0.85, blend: 'normal' },
     timing: { mode: 'persistent', holdMs: 0, fadeMs: 0, intervalMs: 0, flashMs: 0 },
-    motion: { type: STAGES[stage].motion, amount: 0.5, syncToBeat: true },
   })
 }
 
@@ -79,35 +79,40 @@ export function drawStoryFrame(
   tl: Timeline,
   tMs: number,
   video: HTMLVideoElement | null,
-  style: OverlayStyle,
+  opts: FrameOptions,
 ) {
   const { width: w, height: h } = ctx.canvas
+  const size = { w, h }
   const frame = frameAt(tl, tMs)
 
   if (video && video.videoWidth > 0) drawCover(ctx, video, w, h)
   else drawField(ctx, w, h, tMs, frame.beatHz)
 
-  // Depth dim + a soft vignette so the phrase reads over bright footage.
+  // Depth dim + a soft vignette so text reads over bright footage.
   ctx.save()
   ctx.fillStyle = `rgba(0, 0, 0, ${depthDimAt(tl, tMs)})`
   ctx.fillRect(0, 0, w, h)
-  if (style === 'soft') {
-    const v = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.2, w / 2, h / 2, Math.max(w, h) * 0.7)
-    v.addColorStop(0, 'rgba(0, 0, 0, 0.35)')
-    v.addColorStop(1, 'rgba(0, 0, 0, 0.1)')
-    ctx.fillStyle = v
-    ctx.fillRect(0, 0, w, h)
-  }
+  const v = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.2, w / 2, h / 2, Math.max(w, h) * 0.7)
+  v.addColorStop(0, 'rgba(0, 0, 0, 0.3)')
+  v.addColorStop(1, 'rgba(0, 0, 0, 0.1)')
+  ctx.fillStyle = v
+  ctx.fillRect(0, 0, w, h)
   ctx.restore()
 
-  if (frame.text && frame.beat && frame.alpha > 0.001) {
-    // Beat-local clock + the beat's own rate: motion restarts with each beat
-    // (while the phrase fades in) instead of jumping phase mid-glide.
-    const layer = overlayLayer(frame.text, frame.alpha, frame.beat.stage, style)
-    drawFrame(ctx, tMs - frame.beat.startMs, [layer], { w, h }, frame.beat.beatHz)
+  if (opts.captions && frame.text && frame.alpha > 0.001) {
+    drawFrame(ctx, tMs, [captionLayer(frame.text, frame.alpha)], size)
   }
+  drawKeys(ctx, tl.keys, tMs, size)
+  drawSubliminals(ctx, tl.subliminals, tMs, size)
+  if (opts.credit) drawCredit(ctx, opts.credit, creditAlpha(tl, tMs), size)
 
-  drawFade(ctx, { w, h }, sessionEnvelope({ startS: 0, endS: tl.durationMs / 1000 }, tMs / 1000, STORY_FADE_S))
+  drawFade(ctx, size, sessionEnvelope({ startS: 0, endS: tl.durationMs / 1000 }, tMs / 1000, STORY_FADE_S))
+}
+
+/** Credit fades in over the tail, before the closing fade-to-black. */
+function creditAlpha(tl: Timeline, tMs: number): number {
+  const from = tl.durationMs - tl.tailMs - 2000
+  return Math.max(0, Math.min(1, (tMs - from) / 800))
 }
 
 // ── Player (module singleton, like the studio export) ────────────
@@ -130,14 +135,14 @@ export interface PlayOptions {
   video: HTMLVideoElement | null
   soundtrack: AudioBuffer
   timeline: Timeline
-  style: OverlayStyle
+  frame: FrameOptions
   /** Record to a file; always starts from 0. */
   record?: boolean
   fromMs?: number
 }
 
 export function useStoryPlayer() {
-  async function play({ canvas, video, soundtrack, timeline, style, record = false, fromMs = 0 }: PlayOptions) {
+  async function play({ canvas, video, soundtrack, timeline, frame, record = false, fromMs = 0 }: PlayOptions) {
     stop()
     const ctx2d = canvas.getContext('2d')
     if (!ctx2d) return
@@ -187,7 +192,7 @@ export function useStoryPlayer() {
     const loop = () => {
       const t = Math.max(0, (ac.currentTime - t0) * 1000)
       clockMs.value = t
-      drawStoryFrame(ctx2d, timeline, t, activeVideo, style)
+      drawStoryFrame(ctx2d, timeline, t, activeVideo, frame)
       rafId = requestAnimationFrame(loop)
     }
     rafId = requestAnimationFrame(loop)
