@@ -173,8 +173,8 @@
                   {{ b.text || `— silence ${Math.round((b.pauseMs ?? 0) / 1000)}s —` }}
                 </button>
                 <template v-if="b.text && voiceMode === 'pack'">
-                  <span v-if="clips.get(b.id)" class="text-[10px] shrink-0" :class="clips.get(b.id)!.alignment ? 'text-emerald-400/70' : 'text-slate-500'" :title="clips.get(b.id)!.name">
-                    ♪{{ clips.get(b.id)!.alignment ? ' timed' : '' }}
+                  <span v-if="clips.get(b.id)" class="text-[10px] shrink-0" :class="clips.get(b.id)?.alignment ? 'text-emerald-400/70' : 'text-slate-500'" :title="clips.get(b.id)?.name">
+                    ♪{{ clips.get(b.id)?.alignment ? ' timed' : '' }}
                   </span>
                   <button class="text-[10px] text-slate-600 hover:text-slate-300 shrink-0" title="Copy the line to paste into ElevenLabs" @click="copyLine(b.text)">copy</button>
                   <label class="relative text-[10px] text-slate-600 hover:text-slate-300 shrink-0 cursor-pointer" :title="`Attach an mp3 for this beat (${b.id})`">

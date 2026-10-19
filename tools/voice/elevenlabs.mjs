@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-env node */
 // Voice a /story script with ElevenLabs — producer-side only.
 //
 // The app never calls ElevenLabs: you run this locally with your own key,
