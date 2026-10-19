@@ -1,6 +1,7 @@
 import { mulberry32 } from '@/composables/useGlassComposer'
 import { STROBE_PERIOD_MS, SUBLIMINAL_MS, type SubliminalFlash } from './effects'
 import type { TimedKey, TimedLine } from './storyBeats'
+import type { TextPlace } from './beatStyle'
 
 /**
  * Canvas renderers for key-phrase effects and subliminals. Every effect is a
@@ -216,19 +217,30 @@ const DRAW: Record<TimedKey['effect'], typeof drawFlash> = {
   scatter: drawScatter, hand: drawHand, bloom: drawBloom,
 }
 
-/**
- * The reading line: the current sentence in the lower third on a soft
- * backdrop, each word brightening as it's spoken, key words in warm gold.
- */
-export function drawReadingLine(ctx: CanvasRenderingContext2D, line: TimedLine, tMs: number, { w, h }: Size) {
-  const alpha = Math.min(clamp01((tMs - line.startMs) / 350), clamp01((line.endMs - tMs) / 450))
-  if (alpha <= 0) return
-  ctx.save()
-  const band = ctx.createLinearGradient(0, h * 0.6, 0, h)
+/** Soft dark band behind the reading line, from y0 (clear) to y1 (darkest). */
+function shadeBand(ctx: CanvasRenderingContext2D, w: number, y0: number, y1: number, alpha: number) {
+  const band = ctx.createLinearGradient(0, y0, 0, y1)
   band.addColorStop(0, 'rgba(0,0,0,0)')
   band.addColorStop(1, `rgba(0,0,0,${0.55 * alpha})`)
   ctx.fillStyle = band
-  ctx.fillRect(0, h * 0.6, w, h * 0.4)
+  ctx.fillRect(0, Math.min(y0, y1), w, Math.abs(y1 - y0))
+}
+
+/**
+ * The reading line: the current sentence on a soft backdrop (lower third by
+ * default), each word brightening as it's spoken, key words in warm gold.
+ * Middle sits just below centre so gentle key phrases (at 0.4 h) stay clear.
+ */
+export function drawReadingLine(ctx: CanvasRenderingContext2D, line: TimedLine, tMs: number, { w, h }: Size, place: TextPlace = 'low') {
+  const alpha = Math.min(clamp01((tMs - line.startMs) / 350), clamp01((line.endMs - tMs) / 450))
+  if (alpha <= 0) return
+  ctx.save()
+  if (place === 'low') shadeBand(ctx, w, h * 0.6, h, alpha)
+  else if (place === 'high') shadeBand(ctx, w, h * 0.4, 0, alpha)
+  else {
+    shadeBand(ctx, w, h * 0.44, h * 0.6, alpha)
+    shadeBand(ctx, w, h * 0.76, h * 0.6, alpha)
+  }
 
   const px = Math.max(18, Math.round(w * 0.036))
   ctx.font = `500 ${px}px ${FONTS.serif}`
@@ -248,7 +260,8 @@ export function drawReadingLine(ctx: CanvasRenderingContext2D, line: TimedLine, 
   })
 
   const lh = px * 1.35
-  const bottom = h * 0.88
+  const block = (rows.length - 1) * lh
+  const top = place === 'high' ? h * 0.12 : place === 'middle' ? h * 0.6 - block / 2 : h * 0.88 - block
   let offset = 0
   const charAt: number[] = line.words.map((wd) => { const o = offset; offset += wd.text.length + 1; return o })
   const inKey = (i: number) => line.keySpans.some(([a, b]) => charAt[i] >= a && charAt[i] < b)
@@ -257,7 +270,7 @@ export function drawReadingLine(ctx: CanvasRenderingContext2D, line: TimedLine, 
   ctx.shadowBlur = px * 0.3
   rows.forEach((row, r) => {
     let x = (w - row.width) / 2
-    const y = bottom - (rows.length - 1 - r) * lh
+    const y = top + r * lh
     for (const word of row.words) {
       const spoken = tMs >= line.words[word.i].startMs
       ctx.globalAlpha = alpha * (spoken ? 1 : 0.5)

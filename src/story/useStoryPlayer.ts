@@ -4,16 +4,32 @@ import { pickMime, downloadRecording } from '@/composables/useGlassExport'
 import { sessionEnvelope } from '@/composables/studioTrim'
 import { frameAt, depthDimAt, lineAt, type Timeline } from './storyBeats'
 import { drawKeys, drawSubliminals, drawCredit, drawReadingLine } from './drawEffects'
+import { backdropAt, type Backdrop, type BeatScene } from './beatStyle'
 
 /**
  * Plays — and optionally records — a story: the pre-rendered soundtrack is
- * the master clock; each frame draws the looping background video (or a
- * breathing field), dims it with depth, then draws the key-phrase effects and
- * subliminals (drawEffects) and, optionally, the reading line. Recording taps the same canvas and
+ * the master clock; each frame draws the beat's backdrop (a looping clip, a
+ * still, a colour or the breathing field — crossfading when it changes),
+ * dims it with depth, then draws the key-phrase effects and subliminals
+ * (drawEffects) and, optionally, the reading line. Recording taps the same canvas and
  * soundtrack into a MediaRecorder (mp4 where the browser supports it).
  *
  * Recording runs in real time, like the studio export.
  */
+
+/** A clip or still in the backdrop library. */
+export interface StoryMedia {
+  id: string
+  name: string
+  kind: 'video' | 'image'
+  el: HTMLVideoElement | HTMLImageElement
+}
+
+/** What the backdrops are: one resolved scene per timeline beat, plus the library. */
+export interface SceneInput {
+  scenes: BeatScene[]
+  media: Map<string, StoryMedia>
+}
 
 export interface FrameOptions {
   /** Show the story as a reading line (current sentence, words lit as spoken). */
@@ -25,10 +41,19 @@ export interface FrameOptions {
 /** Fade to/from black at the session edges, seconds (matches the soundtrack). */
 export const STORY_FADE_S = 3
 
-/** Canvas size for a background: its own aspect, longest edge ≤ 1920. */
-export function canvasSizeFor(video: HTMLVideoElement | null): { w: number; h: number } {
-  const vw = video?.videoWidth || 1280
-  const vh = video?.videoHeight || 720
+/** Intrinsic size of a library item, 0×0 until it has decoded. */
+function mediaSize(m: StoryMedia | null | undefined): { w: number; h: number } {
+  if (!m) return { w: 0, h: 0 }
+  return m.el instanceof HTMLVideoElement
+    ? { w: m.el.videoWidth, h: m.el.videoHeight }
+    : { w: m.el.complete ? m.el.naturalWidth : 0, h: m.el.complete ? m.el.naturalHeight : 0 }
+}
+
+/** Canvas size for a backdrop: its own aspect, longest edge ≤ 1920. */
+export function canvasSizeFor(media: StoryMedia | null): { w: number; h: number } {
+  const size = mediaSize(media)
+  const vw = size.w || 1280
+  const vh = size.h || 720
   const k = Math.min(1, 1920 / Math.max(vw, vh))
   return { w: Math.round(vw * k), h: Math.round(vh * k) }
 }
@@ -52,12 +77,30 @@ function drawField(ctx: CanvasRenderingContext2D, w: number, h: number, tMs: num
   ctx.fillRect(0, 0, w, h)
 }
 
-/** Draw `video` to cover the canvas, cropping the overflow. */
-function drawCover(ctx: CanvasRenderingContext2D, video: HTMLVideoElement, w: number, h: number) {
-  const k = Math.max(w / video.videoWidth, h / video.videoHeight)
-  const dw = video.videoWidth * k
-  const dh = video.videoHeight * k
-  ctx.drawImage(video, (w - dw) / 2, (h - dh) / 2, dw, dh)
+/** Draw a library item to cover the canvas, cropping the overflow. False if it isn't ready. */
+function drawCover(ctx: CanvasRenderingContext2D, media: StoryMedia | undefined, w: number, h: number): boolean {
+  const size = mediaSize(media)
+  if (!media || !size.w || !size.h) return false
+  const k = Math.max(w / size.w, h / size.h)
+  const dw = size.w * k
+  const dh = size.h * k
+  ctx.drawImage(media.el, (w - dw) / 2, (h - dh) / 2, dw, dh)
+  return true
+}
+
+function drawBackdrop(ctx: CanvasRenderingContext2D, bd: Backdrop, media: SceneInput['media'], w: number, h: number, tMs: number, beatHz: number) {
+  if (bd.kind === 'solid') {
+    ctx.fillStyle = bd.color
+    ctx.fillRect(0, 0, w, h)
+  } else if (bd.kind === 'gradient') {
+    const g = ctx.createLinearGradient(0, 0, 0, h)
+    g.addColorStop(0, bd.from)
+    g.addColorStop(1, bd.to)
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, w, h)
+  } else if (bd.kind === 'field' || !drawCover(ctx, media.get(bd.mediaId), w, h)) {
+    drawField(ctx, w, h, tMs, beatHz)
+  }
 }
 
 /** Render one frame of the story at `tMs`. Used by playback, recording and scrubbing. */
@@ -65,15 +108,23 @@ export function drawStoryFrame(
   ctx: CanvasRenderingContext2D,
   tl: Timeline,
   tMs: number,
-  video: HTMLVideoElement | null,
+  scene: SceneInput,
   opts: FrameOptions,
 ) {
   const { width: w, height: h } = ctx.canvas
   const size = { w, h }
   const frame = frameAt(tl, tMs)
 
-  if (video && video.videoWidth > 0) drawCover(ctx, video, w, h)
-  else drawField(ctx, w, h, tMs, frame.beatHz)
+  const bd = backdropAt(tl, scene.scenes, tMs)
+  if (!bd) drawField(ctx, w, h, tMs, frame.beatHz)
+  else if (bd.k >= 1) drawBackdrop(ctx, bd.to, scene.media, w, h, tMs, frame.beatHz)
+  else {
+    drawBackdrop(ctx, bd.from, scene.media, w, h, tMs, frame.beatHz)
+    ctx.save()
+    ctx.globalAlpha = bd.k
+    drawBackdrop(ctx, bd.to, scene.media, w, h, tMs, frame.beatHz)
+    ctx.restore()
+  }
 
   // Depth dim + a soft vignette so text reads over bright footage.
   ctx.save()
@@ -90,7 +141,7 @@ export function drawStoryFrame(
   drawKeys(ctx, tl.keys, tMs, size)
   if (opts.captions) {
     const line = lineAt(tl, tMs)
-    if (line) drawReadingLine(ctx, line, tMs, size)
+    if (line) drawReadingLine(ctx, line, tMs, size, scene.scenes[line.beat]?.place)
   }
   if (opts.credit) drawCredit(ctx, opts.credit, creditAlpha(tl, tMs), size)
 
@@ -114,13 +165,13 @@ let audioCtx: AudioContext | null = null
 let source: AudioBufferSourceNode | null = null
 let recorder: MediaRecorder | null = null
 let rafId: number | undefined
-let activeVideo: HTMLVideoElement | null = null
+let activeVideos: HTMLVideoElement[] = []
 /** Per-recording flag, so a late onstop from a cancelled take can't save. */
 let take: { discard: boolean } | null = null
 
 export interface PlayOptions {
   canvas: HTMLCanvasElement
-  video: HTMLVideoElement | null
+  scene: SceneInput
   soundtrack: AudioBuffer
   timeline: Timeline
   frame: FrameOptions
@@ -130,7 +181,7 @@ export interface PlayOptions {
 }
 
 export function useStoryPlayer() {
-  async function play({ canvas, video, soundtrack, timeline, frame, record = false, fromMs = 0 }: PlayOptions) {
+  async function play({ canvas, scene, soundtrack, timeline, frame, record = false, fromMs = 0 }: PlayOptions) {
     stop()
     const ctx2d = canvas.getContext('2d')
     if (!ctx2d) return
@@ -161,13 +212,17 @@ export function useStoryPlayer() {
       }
     }
 
-    activeVideo = video
-    if (video && video.readyState > 0 && isFinite(video.duration) && video.duration > 0) {
-      video.loop = true
-      video.muted = true
-      video.currentTime = offsetS % video.duration
-      await video.play().catch(() => { /* field fallback still draws */ })
-    }
+    // Every clip loops from the start of playback, so a beat's clip is
+    // already moving when its backdrop fades in.
+    activeVideos = [...scene.media.values()]
+      .map((m) => m.el)
+      .filter((el): el is HTMLVideoElement => el instanceof HTMLVideoElement && el.readyState > 0 && isFinite(el.duration) && el.duration > 0)
+    await Promise.all(activeVideos.map((v) => {
+      v.loop = true
+      v.muted = true
+      v.currentTime = offsetS % v.duration
+      return v.play().catch(() => { /* field fallback still draws */ })
+    }))
 
     lastFieldMs = offsetS * 1000
     const startAt = ac.currentTime + 0.05
@@ -180,7 +235,7 @@ export function useStoryPlayer() {
     const loop = () => {
       const t = Math.max(0, (ac.currentTime - t0) * 1000)
       clockMs.value = t
-      drawStoryFrame(ctx2d, timeline, t, activeVideo, frame)
+      drawStoryFrame(ctx2d, timeline, t, scene, frame)
       rafId = requestAnimationFrame(loop)
     }
     rafId = requestAnimationFrame(loop)
@@ -192,7 +247,8 @@ export function useStoryPlayer() {
     if (recorder && recorder.state !== 'inactive') recorder.stop()
     recorder = null
     take = null
-    activeVideo?.pause()
+    activeVideos.forEach((v) => v.pause())
+    activeVideos = []
     source = null
     state.value = 'idle'
   }

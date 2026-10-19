@@ -185,6 +185,8 @@ export interface TimedLine {
   words: { text: string; startMs: number }[]
   /** Key-phrase character ranges within `text`, for highlighting. */
   keySpans: [number, number][]
+  /** Index of the beat it belongs to. */
+  beat: number
 }
 
 export interface TimedKey {
@@ -249,6 +251,10 @@ export interface TimelineOptions {
   tailMs?: number
   /** 'gentle' (default): reading line + soft key phrases, one at a time. 'bold': the full effect set. */
   look?: Look
+  /** Per-beat effect for keys without an explicit one (beat editor). */
+  effects?: (Effect | undefined)[]
+  /** Per-beat extra silence after the beat, ms (beat editor). */
+  holdMs?: (number | undefined)[]
 }
 
 /** Split a long sentence into lines at a phrase boundary past this many words. */
@@ -317,9 +323,10 @@ export function buildTimeline(beats: StoryBeat[], opts: TimelineOptions = {}): T
     const spec = STAGES[beat.stage]
     const band = BANDS[spec.band]
     const startMs = t
+    const holdMs = Math.max(0, opts.holdMs?.[index] ?? 0)
 
     if (beat.pauseMs != null) {
-      t += beat.pauseMs
+      t += beat.pauseMs + holdMs
       return {
         ...beat, index, startMs, bodyEndMs: t, endMs: t,
         beatHz: band.beatHz, carrierHz: band.carrierHz, voiced: false, aligned: false, phrases: [], lines: [],
@@ -382,6 +389,7 @@ export function buildTimeline(beats: StoryBeat[], opts: TimelineOptions = {}): T
         startMs: startMs + at(lineStart),
         endMs: last ? startMs + bodyMs + Math.min(LINGER_MS, spec.breathMs) : startMs + at(end + 1),
         words,
+        beat: index,
         keySpans: beat.keys
           .filter((k) => k.charStart >= lineStart && k.charEnd <= end)
           .map((k) => [k.charStart - lineStart, k.charEnd - lineStart]),
@@ -392,7 +400,7 @@ export function buildTimeline(beats: StoryBeat[], opts: TimelineOptions = {}): T
 
     for (const k of beat.keys) {
       const rotation = STAGE_EFFECTS[beat.stage]
-      const picked = k.effect ?? rotation[keyCount % rotation.length]
+      const picked = k.effect ?? opts.effects?.[index] ?? rotation[keyCount % rotation.length]
       const effect = look === 'gentle' ? GENTLE_EFFECT[picked] : picked
       const spokenStartMs = startMs + at(k.charStart)
       const spokenEndMs = startMs + at(k.charEnd - 1, 'end')
@@ -401,7 +409,7 @@ export function buildTimeline(beats: StoryBeat[], opts: TimelineOptions = {}): T
     }
 
     const bodyEndMs = startMs + bodyMs
-    t = bodyEndMs + spec.breathMs
+    t = bodyEndMs + spec.breathMs + holdMs
     return {
       ...beat, index, startMs, bodyEndMs, endMs: t,
       beatHz: band.beatHz, carrierHz: band.carrierHz, voiced, aligned: !!al, phrases: timedPhrases, lines,

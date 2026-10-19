@@ -44,13 +44,20 @@
         </details>
 
         <div class="grid grid-cols-2 gap-3 text-xs">
-          <label class="field">
-            <span>Background video</span>
-            <span class="relative block truncate px-3 py-2 rounded-md bg-white/[0.04] border border-white/[0.06] cursor-pointer hover:bg-white/[0.07]">
-              {{ videoName || 'None — breathing field' }}
-              <input type="file" accept="video/*" class="absolute inset-0 opacity-0 cursor-pointer" @change="onVideoPick" />
-            </span>
-          </label>
+          <div class="field">
+            <span>Backdrops <span class="text-slate-600">· clips &amp; stills, chosen per beat below</span></span>
+            <label class="relative block truncate px-3 py-2 rounded-md bg-white/[0.04] border border-white/[0.06] cursor-pointer hover:bg-white/[0.07]">
+              {{ media.size ? `Add more (${media.size} loaded)` : 'Add video or image…' }}
+              <input type="file" accept="video/*,image/*" multiple class="absolute inset-0 opacity-0 cursor-pointer" @change="onMediaPick" />
+            </label>
+            <div v-if="media.size" class="flex gap-1.5 flex-wrap">
+              <span v-for="m in media.values()" :key="m.id" class="inline-flex items-center gap-1.5 text-[10px] pl-1 pr-1.5 py-0.5 rounded bg-white/[0.05] text-slate-400 max-w-full">
+                <span class="w-3 h-3 rounded-sm shrink-0" :style="swatch({ kind: 'media', mediaId: m.id })" />
+                <span class="truncate">{{ m.name }}</span>
+                <button class="text-slate-600 hover:text-rose-300" :aria-label="`Remove ${m.name}`" @click="removeMedia(m.id)">×</button>
+              </span>
+            </div>
+          </div>
           <label class="field">
             <span>Reading pace (unvoiced beats) · {{ wpm }} wpm</span>
             <input v-model.number="wpm" type="range" min="90" max="220" step="5" />
@@ -134,9 +141,24 @@
             <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse" /> Recording
           </div>
         </div>
-        <video ref="videoRef" :src="videoUrl ?? undefined" class="absolute w-px h-px opacity-0 pointer-events-none" muted playsinline preload="auto" @loadedmetadata="onVideoLoaded" />
+        <div ref="mediaHost" class="absolute w-px h-px overflow-hidden opacity-0 pointer-events-none" aria-hidden="true" />
 
         <template v-if="timeline">
+          <!-- Scene strip: each beat's backdrop -->
+          <div class="flex h-5 rounded overflow-hidden bg-white/[0.04]" aria-label="Backdrops by beat">
+            <div :style="{ width: pct(timeline.leadInMs), ...swatch(scenes[0]?.backdrop) }" class="opacity-60" />
+            <button
+              v-for="b in timeline.beats"
+              :key="b.index"
+              class="h-full border-r border-black/50 transition-[filter] hover:brightness-150"
+              :class="{ 'ring-1 ring-inset ring-white/80': selected === b.index }"
+              :style="{ width: pct(b.endMs - b.startMs), ...swatch(scenes[b.index]?.backdrop) }"
+              :title="`Beat ${b.index + 1} · ${backdropLabel(scenes[b.index]?.backdrop)}`"
+              :aria-label="`Edit beat ${b.index + 1}`"
+              @click="selectBeat(b.index)"
+            />
+          </div>
+
           <!-- Stage bar with key-phrase ticks -->
           <div
             class="relative flex h-3 rounded-full overflow-hidden bg-white/[0.04] cursor-pointer"
@@ -179,41 +201,127 @@
             <span v-if="stale" class="text-amber-400/70">The story or voice changed — rebuild before exporting.</span>
           </p>
 
-          <!-- Beat list -->
-          <ol class="space-y-1 max-h-[44vh] overflow-y-auto pr-1">
-            <li v-for="b in timeline.beats" :key="b.index" class="rounded-md" :class="{ 'bg-white/[0.06]': currentBeat === b.index }">
-              <div class="flex gap-3 items-baseline px-2 pt-1.5">
-                <button class="font-mono text-[10px] text-slate-600 w-9 shrink-0 hover:text-slate-300" @click="seek(b.startMs)">{{ formatClock(b.startMs) }}</button>
-                <span class="stage-chip shrink-0" :class="`stage-${b.stage}`">{{ b.stage }}</span>
-                <button class="text-xs text-slate-400 text-left truncate flex-1 hover:text-slate-200" @click="seek(b.startMs)">
-                  {{ b.text || `— silence ${Math.round((b.pauseMs ?? 0) / 1000)}s —` }}
-                </button>
-                <template v-if="b.text && voiceMode === 'pack'">
-                  <span v-if="clips.get(b.id)" class="text-[10px] shrink-0" :class="clips.get(b.id)?.alignment ? 'text-emerald-400/70' : 'text-slate-500'" :title="clips.get(b.id)?.name">
-                    ♪{{ clips.get(b.id)?.alignment ? ' timed' : '' }}
-                  </span>
-                  <button class="text-[10px] text-slate-600 hover:text-slate-300 shrink-0" title="Copy the line to paste into ElevenLabs" @click="copyLine(b.text)">copy</button>
-                  <label class="relative text-[10px] text-slate-600 hover:text-slate-300 shrink-0 cursor-pointer" :title="`Attach an mp3 for this beat (${b.id})`">
-                    {{ clips.get(b.id) ? 'replace' : 'attach' }}
-                    <input type="file" accept="audio/*" class="absolute inset-0 opacity-0 cursor-pointer w-full" @change="onBeatAudio(b.id, $event)" />
-                  </label>
-                </template>
-                <span v-else-if="b.voiced" class="text-[10px] text-slate-600 shrink-0">♪</span>
-              </div>
-              <div v-if="keysByBeat.get(b.index)?.length" class="flex gap-1.5 flex-wrap pl-14 pb-1.5 pt-1">
-                <button
-                  v-for="(k, i) in keysByBeat.get(b.index)"
-                  :key="i"
-                  class="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.05] text-slate-400 hover:bg-white/10"
-                  @click="seek(k.startMs)"
-                >
-                  <span class="text-slate-600">{{ k.effect }}</span> {{ k.text }}
-                </button>
-              </div>
-              <div v-else class="pb-1.5" />
-            </li>
-          </ol>
         </template>
+
+        <!-- Beat list + per-beat editor -->
+        <div v-if="parsed.length" class="flex items-baseline justify-between text-[11px] text-slate-500">
+          <span>Beats — select one to style it</span>
+          <span v-if="stale && timeline" class="text-amber-400/70">times update on rebuild</span>
+        </div>
+        <ol class="space-y-1 max-h-[56vh] overflow-y-auto pr-1" aria-label="Beats">
+          <li
+            v-for="(b, i) in parsed"
+            :key="i"
+            class="rounded-md border"
+            :class="selected === i ? 'border-white/15 bg-white/[0.04]' : currentBeat === i && timeline && !stale ? 'border-transparent bg-white/[0.06]' : 'border-transparent'"
+          >
+            <div class="flex gap-3 items-center px-2 pt-1.5">
+              <button class="font-mono text-[10px] text-slate-600 w-9 shrink-0 text-left hover:text-slate-300" :disabled="!freshBeat(i)" @click="seek(freshBeat(i)!.startMs)">
+                {{ freshBeat(i) ? formatClock(freshBeat(i)!.startMs) : '–:––' }}
+              </button>
+              <span class="w-4 h-4 rounded-sm shrink-0 border border-white/10" :style="swatch(scenes[i]?.backdrop)" :title="backdropLabel(scenes[i]?.backdrop)" />
+              <span class="stage-chip shrink-0" :class="`stage-${b.stage}`">{{ b.stage }}</span>
+              <button class="text-xs text-slate-400 text-left truncate flex-1 hover:text-slate-200" :aria-expanded="selected === i" @click="selectBeat(i)">
+                {{ b.text || `— silence ${Math.round((b.pauseMs ?? 0) / 1000)}s —` }}
+              </button>
+              <span v-if="styles[i]" class="text-[10px] text-sky-300/60 shrink-0" title="This beat has its own style">styled</span>
+              <template v-if="b.text && voiceMode === 'pack'">
+                <span v-if="clips.get(b.id)" class="text-[10px] shrink-0" :class="clips.get(b.id)?.alignment ? 'text-emerald-400/70' : 'text-slate-500'" :title="clips.get(b.id)?.name">
+                  ♪{{ clips.get(b.id)?.alignment ? ' timed' : '' }}
+                </span>
+                <button class="text-[10px] text-slate-600 hover:text-slate-300 shrink-0" title="Copy the line to paste into ElevenLabs" @click="copyLine(b.text)">copy</button>
+                <label class="relative text-[10px] text-slate-600 hover:text-slate-300 shrink-0 cursor-pointer" :title="`Attach an mp3 for this beat (${b.id})`">
+                  {{ clips.get(b.id) ? 'replace' : 'attach' }}
+                  <input type="file" accept="audio/*" class="absolute inset-0 opacity-0 cursor-pointer w-full" @change="onBeatAudio(b.id, $event)" />
+                </label>
+              </template>
+              <span v-else-if="freshBeat(i)?.voiced" class="text-[10px] text-slate-600 shrink-0">♪</span>
+            </div>
+            <div v-if="keysByBeat.get(i)?.length && !stale" class="flex gap-1.5 flex-wrap pl-[4.75rem] pt-1">
+              <button
+                v-for="(k, j) in keysByBeat.get(i)"
+                :key="j"
+                class="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.05] text-slate-400 hover:bg-white/10"
+                @click="seek(k.startMs)"
+              >
+                <span class="text-slate-600">{{ k.effect }}</span> {{ k.text }}
+              </button>
+            </div>
+
+            <!-- Inspector -->
+            <div v-if="selected === i" class="grid grid-cols-2 gap-3 px-3 pt-3 pb-1 text-xs">
+              <label class="field col-span-2 sm:col-span-1">
+                <span>Backdrop</span>
+                <select class="select" :value="backdropValue(styles[i])" @change="onBackdropSelect(i, ($event.target as HTMLSelectElement).value)">
+                  <option value="continue">{{ i === 0 ? 'Default' : 'Continue' }} — {{ backdropLabel(i === 0 ? baseBackdrop : scenes[i - 1]?.backdrop) }}</option>
+                  <option value="field">Breathing field</option>
+                  <option value="solid">Colour</option>
+                  <option value="gradient">Gradient</option>
+                  <option v-for="m in media.values()" :key="m.id" :value="`media:${m.id}`">{{ m.kind === 'image' ? 'Still' : 'Clip' }}: {{ m.name }}</option>
+                </select>
+              </label>
+              <div class="field col-span-2 sm:col-span-1">
+                <span>Palette</span>
+                <div class="flex gap-1.5">
+                  <button
+                    v-for="p in PALETTE"
+                    :key="p.label"
+                    class="w-6 h-6 rounded border border-white/10 hover:border-white/50"
+                    :style="swatch(p.backdrop)"
+                    :title="p.label"
+                    :aria-label="`${p.label} backdrop`"
+                    @click="setStyle(i, { backdrop: { ...p.backdrop } })"
+                  />
+                </div>
+              </div>
+              <div v-if="styles[i]?.backdrop?.kind === 'solid'" class="field col-span-2">
+                <span>Colour</span>
+                <input type="color" class="color" :value="(styles[i]!.backdrop as { color: string }).color" @input="setStyle(i, { backdrop: { kind: 'solid', color: ($event.target as HTMLInputElement).value } })" />
+              </div>
+              <div v-else-if="styles[i]?.backdrop?.kind === 'gradient'" class="field col-span-2">
+                <span>Gradient · top → bottom</span>
+                <div class="flex gap-2 items-center">
+                  <input type="color" class="color" :value="(styles[i]!.backdrop as { from: string }).from" @input="setStyle(i, { backdrop: { ...(styles[i]!.backdrop as Extract<Backdrop, { kind: 'gradient' }>), from: ($event.target as HTMLInputElement).value } })" />
+                  <span class="text-slate-600">→</span>
+                  <input type="color" class="color" :value="(styles[i]!.backdrop as { to: string }).to" @input="setStyle(i, { backdrop: { ...(styles[i]!.backdrop as Extract<Backdrop, { kind: 'gradient' }>), to: ($event.target as HTMLInputElement).value } })" />
+                </div>
+              </div>
+
+              <div v-if="b.text" class="field col-span-2 sm:col-span-1">
+                <span>Reading line</span>
+                <div class="flex gap-1.5" role="radiogroup" aria-label="Reading line position">
+                  <button
+                    v-for="pl in places"
+                    :key="pl.id"
+                    class="chip flex-1 !px-2"
+                    role="radio"
+                    :aria-checked="scenes[i]?.place === pl.id"
+                    :class="{ 'chip--on': scenes[i]?.place === pl.id, 'chip--inherited': scenes[i]?.place === pl.id && !styles[i]?.place }"
+                    @click="setStyle(i, { place: styles[i]?.place === pl.id ? undefined : pl.id })"
+                  >{{ pl.label }}</button>
+                </div>
+              </div>
+              <label v-if="b.keys.length" class="field col-span-2 sm:col-span-1">
+                <span>Key phrase effect</span>
+                <select class="select" :value="styles[i]?.effect ?? ''" @change="setStyle(i, { effect: (($event.target as HTMLSelectElement).value || undefined) as Effect | undefined })">
+                  <option value="">Auto — rotate by stage</option>
+                  <option v-for="e in effectNames" :key="e" :value="e">
+                    {{ EFFECTS[e].label }}{{ look === 'gentle' && GENTLE_EFFECT[e] !== e ? ' (softens to Bloom in Gentle)' : '' }}
+                  </option>
+                </select>
+              </label>
+              <label class="field col-span-2">
+                <span>Hold after the beat · +{{ ((styles[i]?.holdMs ?? 0) / 1000).toFixed(1) }} s</span>
+                <input type="range" min="0" :max="MAX_HOLD_MS" step="500" :value="styles[i]?.holdMs ?? 0" @input="setStyle(i, { holdMs: Number(($event.target as HTMLInputElement).value) })" />
+              </label>
+              <div class="col-span-2 flex items-center justify-between text-[11px] text-slate-600">
+                <span>Backdrop and placement preview now; effect and hold apply on rebuild.</span>
+                <button v-if="styles[i]" class="link" @click="setStyle(i, { backdrop: undefined, place: undefined, effect: undefined, holdMs: undefined })">Clear style</button>
+              </div>
+            </div>
+            <div class="pb-1.5" />
+          </li>
+        </ol>
       </section>
     </div>
   </div>
@@ -226,16 +334,17 @@ import {
   parseStory, buildTimeline, beatIndexAt, entrainmentAt, formatClock, STAGES,
   type Timeline, type TimedKey, type StoryStage, type Alignment,
 } from '@/story/storyBeats'
-import { EFFECTS, maxFlashesPerSecond, type Look } from '@/story/effects'
+import { EFFECTS, GENTLE_EFFECT, maxFlashesPerSecond, type Effect, type Look } from '@/story/effects'
 import { loadEffectFonts } from '@/story/drawEffects'
 import { renderSoundtrack, voiceBuffer, DEFAULT_LEVELS, type SoundtrackLevels } from '@/story/renderSoundtrack'
 import { readPack, decodeAudioFile, voiceScript, type VoiceClip, type PackMeta } from '@/story/voicePack'
-import { useStoryPlayer, drawStoryFrame, canvasSizeFor, STORY_FADE_S, type FrameOptions } from '@/story/useStoryPlayer'
+import { useStoryPlayer, drawStoryFrame, canvasSizeFor, STORY_FADE_S, type FrameOptions, type StoryMedia, type SceneInput } from '@/story/useStoryPlayer'
+import { resolveScenes, remapStyles, cleanStyle, MAX_HOLD_MS, type Backdrop, type BeatStyle, type TextPlace } from '@/story/beatStyle'
 import { pickMime } from '@/composables/useGlassExport'
 import { useVoice } from '@/composables/useVoice'
 
 const markers = Object.keys(STAGES) as StoryStage[]
-const effectNames = Object.keys(EFFECTS)
+const effectNames = Object.keys(EFFECTS) as Effect[]
 
 const text = ref(STORY_SAMPLES[0].text)
 const wpm = ref(140)
@@ -325,42 +434,142 @@ function copyLine(line: string) {
   void navigator.clipboard?.writeText(line).catch(() => { /* clipboard blocked */ })
 }
 
-// ── Background video ──
-const videoRef = ref<HTMLVideoElement>()
+// ── Backdrop library ──
 const canvasRef = ref<HTMLCanvasElement>()
-const videoUrl = ref<string | null>(null)
-const videoName = ref('')
+const mediaHost = ref<HTMLDivElement>()
+const media = shallowRef(new Map<string, StoryMedia>())
+let mediaSeq = 0
 
-function onVideoPick(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
-  if (!file) return
+function onMediaPick(e: Event) {
+  const input = e.target as HTMLInputElement
+  const files = [...(input.files ?? [])]
+  input.value = ''
+  if (!files.length) return
   player.stop()
-  if (videoUrl.value) URL.revokeObjectURL(videoUrl.value)
-  videoUrl.value = URL.createObjectURL(file)
-  videoName.value = file.name
-}
-
-function backgroundVideo(): HTMLVideoElement | null {
-  const v = videoRef.value
-  return v && videoUrl.value && v.videoWidth > 0 ? v : null
-}
-
-function onVideoLoaded() {
-  sizeCanvas()
-  // Seek a hair in so the first frame decodes for the still preview.
-  const v = videoRef.value
-  if (v) {
-    v.currentTime = 0.01
-    v.addEventListener('seeked', () => drawStill(), { once: true })
+  const next = new Map(media.value)
+  for (const file of files) {
+    const id = `m${++mediaSeq}`
+    const url = URL.createObjectURL(file)
+    const item: StoryMedia = file.type.startsWith('image/')
+      ? { id, name: file.name, kind: 'image', el: new Image() }
+      : { id, name: file.name, kind: 'video', el: document.createElement('video') }
+    if (item.el instanceof HTMLVideoElement) {
+      const v = item.el
+      Object.assign(v, { muted: true, playsInline: true, preload: 'auto', loop: true })
+      // Seek a hair in so the first frame decodes for the still preview.
+      v.addEventListener('loadedmetadata', () => { v.currentTime = 0.01 }, { once: true })
+      v.addEventListener('seeked', () => { sizeCanvas(); drawStill() }, { once: true })
+    } else {
+      item.el.addEventListener('load', () => { sizeCanvas(); drawStill() }, { once: true })
+    }
+    item.el.src = url
+    mediaHost.value?.appendChild(item.el)
+    next.set(id, item)
   }
+  media.value = next
+}
+
+function removeMedia(id: string) {
+  const item = media.value.get(id)
+  if (!item) return
+  player.stop()
+  URL.revokeObjectURL(item.el.src)
+  item.el.remove()
+  const next = new Map(media.value)
+  next.delete(id)
+  media.value = next
+  styles.value = styles.value.map((st) =>
+    st?.backdrop?.kind === 'media' && st.backdrop.mediaId === id ? cleanStyle({ ...st, backdrop: undefined }) : st)
+  sizeCanvas()
+  drawStill()
 }
 
 function sizeCanvas() {
   const c = canvasRef.value
   if (!c) return
-  const { w, h } = canvasSizeFor(backgroundVideo())
-  c.width = w
-  c.height = h
+  const { w, h } = canvasSizeFor(media.value.values().next().value ?? null)
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h }
+}
+
+// ── Beat styles (the per-beat editor) ──
+const styles = ref<(BeatStyle | undefined)[]>([])
+const selected = ref<number | null>(null)
+watch(parsed, (next, prev) => {
+  styles.value = remapStyles(prev ?? [], next, styles.value)
+  if (selected.value != null && selected.value >= next.length) selected.value = null
+})
+
+/** The opening backdrop until a beat picks one: the first library item, else the field. */
+const baseBackdrop = computed<Backdrop>(() => {
+  const first = media.value.keys().next().value
+  return first ? { kind: 'media', mediaId: first } : { kind: 'field' }
+})
+const scenes = computed(() => resolveScenes(styles.value, parsed.value.length, baseBackdrop.value))
+const sceneInput = computed<SceneInput>(() => ({ scenes: scenes.value, media: media.value }))
+
+function setStyle(i: number, patch: Partial<BeatStyle>) {
+  const next = [...styles.value]
+  next[i] = cleanStyle({ ...next[i], ...patch })
+  styles.value = next
+}
+
+const PALETTE: { label: string; backdrop: Backdrop }[] = [
+  { label: 'Dusk', backdrop: { kind: 'gradient', from: '#2a1a4a', to: '#06050d' } },
+  { label: 'Deep sea', backdrop: { kind: 'gradient', from: '#0d3346', to: '#02070d' } },
+  { label: 'Ember', backdrop: { kind: 'gradient', from: '#3a160c', to: '#080303' } },
+  { label: 'Moss', backdrop: { kind: 'gradient', from: '#123020', to: '#030806' } },
+  { label: 'Rose', backdrop: { kind: 'gradient', from: '#3d1834', to: '#0a0410' } },
+  { label: 'Night', backdrop: { kind: 'solid', color: '#05050a' } },
+]
+
+const places: { id: TextPlace; label: string }[] = [
+  { id: 'high', label: 'Top' }, { id: 'middle', label: 'Middle' }, { id: 'low', label: 'Bottom' },
+]
+
+/** <select> value for a beat's backdrop. */
+function backdropValue(st: BeatStyle | undefined): string {
+  const bd = st?.backdrop
+  if (!bd) return 'continue'
+  return bd.kind === 'media' ? `media:${bd.mediaId}` : bd.kind
+}
+
+function onBackdropSelect(i: number, value: string) {
+  const current = scenes.value[i]?.backdrop
+  let backdrop: Backdrop | undefined
+  if (value === 'field') backdrop = { kind: 'field' }
+  else if (value === 'solid') backdrop = { kind: 'solid', color: current?.kind === 'gradient' ? current.from : '#120c24' }
+  else if (value === 'gradient') backdrop = current?.kind === 'solid' ? { kind: 'gradient', from: current.color, to: '#05050a' } : { ...(PALETTE[0].backdrop as Extract<Backdrop, { kind: 'gradient' }>) }
+  else if (value.startsWith('media:')) backdrop = { kind: 'media', mediaId: value.slice(6) }
+  setStyle(i, { backdrop })
+}
+
+/** CSS background for a backdrop swatch. */
+function swatch(bd: Backdrop | undefined): Record<string, string> {
+  if (!bd || bd.kind === 'field') return { background: 'radial-gradient(circle, rgba(88,70,160,0.8), #07070c 70%)' }
+  if (bd.kind === 'solid') return { background: bd.color }
+  if (bd.kind === 'gradient') return { background: `linear-gradient(${bd.from}, ${bd.to})` }
+  const m = media.value.get(bd.mediaId)
+  return m?.kind === 'image'
+    ? { background: `center / cover url("${m.el.src}")` }
+    : { background: 'repeating-linear-gradient(135deg, #1e293b 0 6px, #0f172a 6px 12px)' }
+}
+
+function backdropLabel(bd: Backdrop | undefined): string {
+  if (!bd || bd.kind === 'field') return 'Breathing field'
+  if (bd.kind === 'solid') return 'Colour'
+  if (bd.kind === 'gradient') return 'Gradient'
+  return media.value.get(bd.mediaId)?.name ?? 'Missing clip'
+}
+
+function selectBeat(i: number) {
+  selected.value = selected.value === i ? null : i
+  const tb = freshBeat(i)
+  if (tb && selected.value === i) seek(tb.startMs + Math.min(1500, (tb.endMs - tb.startMs) / 3))
+}
+
+/** The built beat at index i, only while the timeline matches the story. */
+function freshBeat(i: number) {
+  return !stale.value ? timeline.value?.beats[i] ?? null : null
 }
 
 // ── Build: parse → voice → timeline → offline soundtrack ──
@@ -370,7 +579,9 @@ const building = ref(false)
 const buildStep = ref('')
 const buildError = ref('')
 const builtKey = ref('')
-const inputKey = computed(() => JSON.stringify([text.value, wpm.value, voiceMode.value, clipsVersion.value, kokoroStatus.value, look.value, levels]))
+/** The style fields that change timing (draw-only ones preview without a rebuild). */
+const timingStyles = computed(() => parsed.value.map((_, i) => [styles.value[i]?.effect, styles.value[i]?.holdMs]))
+const inputKey = computed(() => JSON.stringify([text.value, wpm.value, voiceMode.value, clipsVersion.value, kokoroStatus.value, look.value, levels, timingStyles.value]))
 const stale = computed(() => !timeline.value || builtKey.value !== inputKey.value)
 
 async function build() {
@@ -398,6 +609,8 @@ async function build() {
     const tl = buildTimeline(beats, {
       wpm: wpm.value,
       look: look.value,
+      effects: beats.map((_, i) => styles.value[i]?.effect),
+      holdMs: beats.map((_, i) => styles.value[i]?.holdMs),
       voiceMs: voices.map((v) => (v ? v.duration * 1000 : null)),
       alignments,
     })
@@ -429,21 +642,21 @@ const frameOptions = computed<FrameOptions>(() => ({
 }))
 
 watch(player.clockMs, (t) => { if (player.state.value !== 'idle') cursorMs.value = t })
-watch(frameOptions, () => drawStill())
+watch([frameOptions, sceneInput], () => drawStill())
 
 function drawStill() {
   const c = canvasRef.value
   const tl = timeline.value
   const ctx = c?.getContext('2d')
   if (!ctx || !tl || player.state.value !== 'idle') return
-  drawStoryFrame(ctx, tl, cursorMs.value, backgroundVideo(), frameOptions.value)
+  drawStoryFrame(ctx, tl, cursorMs.value, sceneInput.value, frameOptions.value)
 }
 
 function start(opts: { record: boolean }) {
   if (!timeline.value || !soundtrack.value || !canvasRef.value) return
   void player.play({
     canvas: canvasRef.value,
-    video: backgroundVideo(),
+    scene: sceneInput.value,
     soundtrack: soundtrack.value,
     timeline: timeline.value,
     frame: frameOptions.value,
@@ -493,7 +706,7 @@ const exportExt = typeof MediaRecorder !== 'undefined' && pickMime().startsWith(
 onMounted(() => { void loadEffectFonts() })
 onUnmounted(() => {
   player.stop()
-  if (videoUrl.value) URL.revokeObjectURL(videoUrl.value)
+  media.value.forEach((m) => URL.revokeObjectURL(m.el.src))
 })
 </script>
 
@@ -509,6 +722,10 @@ onUnmounted(() => {
 .link { @apply text-slate-300 underline decoration-white/20 underline-offset-2 hover:decoration-white/60; }
 
 .field { @apply flex flex-col gap-1.5 text-slate-500; }
+.select { @apply w-full px-2 py-1.5 rounded-md bg-white/[0.04] border border-white/[0.08] text-slate-300 text-xs focus:outline-none focus:border-white/25; }
+.select option { background: #111; }
+.color { @apply w-10 h-7 rounded border border-white/10 bg-transparent cursor-pointer; }
+.chip--inherited { @apply border-dashed; }
 
 .stage-chip { @apply text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded text-black/80; }
 .stage-induce   { background: #7dd3fc; }

@@ -123,10 +123,14 @@ describe('sampling', () => {
 })
 
 describe('overlay', () => {
-  it('sizes the canvas to the video, capped at 1920 on the long edge', () => {
+  it('sizes the canvas to the backdrop, capped at 1920 on the long edge', () => {
     expect(canvasSizeFor(null)).toEqual({ w: 1280, h: 720 })
-    const v = { videoWidth: 2160, videoHeight: 3840 } as HTMLVideoElement
-    expect(canvasSizeFor(v)).toEqual({ w: 1080, h: 1920 })
+    const v = document.createElement('video')
+    Object.defineProperties(v, { videoWidth: { value: 2160 }, videoHeight: { value: 3840 } })
+    expect(canvasSizeFor({ id: 'm1', name: 'tall.mp4', kind: 'video', el: v })).toEqual({ w: 1080, h: 1920 })
+    const img = new Image()
+    Object.defineProperties(img, { complete: { value: true }, naturalWidth: { value: 4000 }, naturalHeight: { value: 3000 } })
+    expect(canvasSizeFor({ id: 'm2', name: 'wide.jpg', kind: 'image', el: img })).toEqual({ w: 1920, h: 1440 })
   })
 })
 
