@@ -5,10 +5,13 @@ import { sessionEnvelope } from '@/composables/studioTrim'
 import { frameAt, depthDimAt, lineAt, type Timeline } from './storyBeats'
 import { drawKeys, drawSubliminals, drawCredit, drawReadingLine } from './drawEffects'
 import { backdropAt, type Backdrop, type BeatScene } from './beatStyle'
+import { createMixer, type Mixer } from './mixer'
+import { scheduleScore, type ScoreHandle } from './score'
+import type { Automation, MixState, SoundDesign, StemId } from './trance'
 
 /**
- * Plays — and optionally records — a story: the pre-rendered soundtrack is
- * the master clock; each frame draws the beat's backdrop (a looping clip, a
+ * Plays — and optionally records — a story: the score is scheduled live
+ * through the trance mixer and the audio clock is the master clock; each frame draws the beat's backdrop (a looping clip, a
  * still, a colour or the breathing field — crossfading when it changes),
  * dims it with depth, then draws the key-phrase effects and subliminals
  * (drawEffects) and, optionally, the reading line. Recording taps the same canvas and
@@ -160,9 +163,12 @@ type PlayerState = 'idle' | 'playing' | 'recording'
 
 const state = ref<PlayerState>('idle')
 const clockMs = ref(0)
+const meters = ref<Partial<Record<StemId, number>>>({})
 
 let audioCtx: AudioContext | null = null
-let source: AudioBufferSourceNode | null = null
+let mixer: Mixer | null = null
+let score: ScoreHandle | null = null
+let endTimer: ReturnType<typeof setTimeout> | undefined
 let recorder: MediaRecorder | null = null
 let rafId: number | undefined
 let activeVideos: HTMLVideoElement[] = []
@@ -172,8 +178,12 @@ let take: { discard: boolean } | null = null
 export interface PlayOptions {
   canvas: HTMLCanvasElement
   scene: SceneInput
-  soundtrack: AudioBuffer
   timeline: Timeline
+  /** Rendered voice per beat (null where unvoiced). */
+  voices: (AudioBuffer | null)[]
+  design: SoundDesign
+  mix: MixState
+  automation: Automation
   frame: FrameOptions
   /** Record to a file; always starts from 0. */
   record?: boolean
@@ -181,22 +191,27 @@ export interface PlayOptions {
 }
 
 export function useStoryPlayer() {
-  async function play({ canvas, scene, soundtrack, timeline, frame, record = false, fromMs = 0 }: PlayOptions) {
+  async function play({ canvas, scene, timeline, voices, design, mix, automation, frame, record = false, fromMs = 0 }: PlayOptions) {
     stop()
     const ctx2d = canvas.getContext('2d')
     if (!ctx2d) return
     audioCtx ??= new AudioContext()
     await audioCtx.resume()
     const ac = audioCtx
-    const offsetS = record ? 0 : Math.max(0, Math.min(fromMs, timeline.durationMs - 100)) / 1000
+    const offsetMs = record ? 0 : Math.max(0, Math.min(fromMs, timeline.durationMs - 100))
+    const startAt = ac.currentTime + 0.08
 
-    source = ac.createBufferSource()
-    source.buffer = soundtrack
-    source.connect(ac.destination)
+    const mx = createMixer(ac, { meters: true })
+    mixer = mx
+    mx.output.connect(ac.destination)
+    mx.setMix(mix, design.comfort)
+    mx.scheduleAutomation(automation, startAt, offsetMs)
+    mx.scheduleFade(timeline.durationMs, STORY_FADE_S, startAt, offsetMs)
+    score = scheduleScore(ac, timeline, voices, mx.inputs, { design, fromMs: offsetMs, startAt })
 
     if (record) {
       const dest = ac.createMediaStreamDestination()
-      source.connect(dest)
+      mx.output.connect(dest)
       const stream = new MediaStream([
         ...canvas.captureStream(30).getVideoTracks(),
         ...dest.stream.getAudioTracks(),
@@ -220,28 +235,37 @@ export function useStoryPlayer() {
     await Promise.all(activeVideos.map((v) => {
       v.loop = true
       v.muted = true
-      v.currentTime = offsetS % v.duration
+      v.currentTime = (offsetMs / 1000) % v.duration
       return v.play().catch(() => { /* field fallback still draws */ })
     }))
 
-    lastFieldMs = offsetS * 1000
-    const startAt = ac.currentTime + 0.05
-    const t0 = startAt - offsetS
-    source.onended = () => finish()
-    source.start(startAt, offsetS)
+    lastFieldMs = offsetMs
+    const t0 = startAt - offsetMs / 1000
     recorder?.start(250)
     state.value = record ? 'recording' : 'playing'
+    // The score has no single source to end on; finish on the clock (with a
+    // timer backstop, since rAF stalls in a background tab).
+    endTimer = setTimeout(() => finish(), (startAt - ac.currentTime) * 1000 + timeline.durationMs - offsetMs + 250)
 
+    let frameNo = 0
     const loop = () => {
       const t = Math.max(0, (ac.currentTime - t0) * 1000)
-      clockMs.value = t
+      clockMs.value = Math.min(t, timeline.durationMs)
       drawStoryFrame(ctx2d, timeline, t, scene, frame)
+      if (++frameNo % 3 === 0) {
+        // Fall back slowly, so short sounds (heartbeat, bowl strikes) still register.
+        const now = mx.levels()
+        const prev = meters.value
+        meters.value = Object.fromEntries(Object.entries(now).map(([id, v]) => [id, Math.max(v, (prev[id as StemId] ?? 0) * 0.82)]))
+      }
+      if (t >= timeline.durationMs) { finish(); return }
       rafId = requestAnimationFrame(loop)
     }
     rafId = requestAnimationFrame(loop)
   }
 
   function finish() {
+    clearTimeout(endTimer)
     if (rafId) cancelAnimationFrame(rafId)
     rafId = undefined
     if (recorder && recorder.state !== 'inactive') recorder.stop()
@@ -249,24 +273,60 @@ export function useStoryPlayer() {
     take = null
     activeVideos.forEach((v) => v.pause())
     activeVideos = []
-    source = null
+    score?.stop()
+    score = null
+    mixer?.dispose()
+    mixer = null
+    meters.value = {}
     state.value = 'idle'
   }
 
   /** Stop playback. A recording in progress is discarded, not saved. */
   function stop() {
-    if (source) {
-      source.onended = null
-      try { source.stop() } catch { /* not started */ }
-    }
     if (take) take.discard = true
     finish()
+  }
+
+  /** Move faders / mute / solo on the running mix. */
+  function setMix(mix: MixState, comfort: boolean) {
+    mixer?.setMix(mix, comfort)
   }
 
   return {
     state: readonly(state),
     clockMs: readonly(clockMs),
+    meters: readonly(meters),
     play,
     stop,
+    setMix,
   }
+}
+
+/**
+ * A soft tone in the left ear, then the right — binaural only works on
+ * headphones worn the right way round. Resolves with each side as it plays.
+ */
+export async function headphoneCheck(onSide: (side: 'left' | 'right' | null) => void) {
+  audioCtx ??= new AudioContext()
+  await audioCtx.resume()
+  const ac = audioCtx
+  for (const [side, ch, freq] of [['left', 0, 392], ['right', 1, 494]] as const) {
+    onSide(side)
+    const o = ac.createOscillator()
+    o.frequency.value = freq
+    const g = ac.createGain()
+    const t = ac.currentTime + 0.02
+    g.gain.setValueAtTime(0, t)
+    g.gain.linearRampToValueAtTime(0.18, t + 0.08)
+    g.gain.setValueAtTime(0.18, t + 0.8)
+    g.gain.linearRampToValueAtTime(0, t + 1)
+    const merger = ac.createChannelMerger(2)
+    o.connect(g).connect(merger, 0, ch)
+    merger.connect(ac.destination)
+    o.start(t)
+    o.stop(t + 1.05)
+    await new Promise((r) => setTimeout(r, 1250))
+    merger.disconnect()
+  }
+  onSide(null)
 }

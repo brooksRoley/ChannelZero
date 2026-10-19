@@ -8,7 +8,7 @@ import { BANDS } from '@/composables/useStudioBinaural'
 import { canvasSizeFor } from '@/story/useStoryPlayer'
 import { extractKeys, textId, lineAt, type Alignment } from '@/story/storyBeats'
 import { STAGE_EFFECTS, GENTLE_EFFECT, maxFlashesPerSecond } from '@/story/effects'
-import { padSegments, duckWindows, STAGE_CHORDS } from '@/story/renderSoundtrack'
+import { padSegments, duckWindows, STAGE_CHORDS } from '@/story/score'
 import { voiceScript } from '@/story/voicePack'
 import { STORY_SAMPLES } from '@/data/storySamples'
 

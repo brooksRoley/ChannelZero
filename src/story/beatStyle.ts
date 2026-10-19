@@ -3,10 +3,12 @@
 // The story text stays the source of truth for words, stages and keys; the
 // beat editor layers a style over each beat. Backdrop and text placement are
 // "sticky" like stage markers — unset carries the previous beat's choice on —
-// and only affect drawing, so they preview without a rebuild. Key effect and
+// and only affect drawing, so they preview without a rebuild. So does the
+// beat's sound balance, which the mixer automates live. Key effect and
 // hold change timing, so they go into buildTimeline.
 
 import type { Effect } from './effects'
+import type { BeatSound } from './trance'
 import type { StoryBeat, Timeline } from './storyBeats'
 import { beatIndexAt } from './storyBeats'
 
@@ -27,6 +29,8 @@ export interface BeatStyle {
   effect?: Effect
   /** Extra silence after the beat, ms. */
   holdMs?: number
+  /** Re-balance of the beds from this beat on (sticky per bed; live, no rebuild). */
+  sound?: BeatSound
 }
 
 export interface BeatScene {
@@ -99,5 +103,6 @@ export function cleanStyle(s: BeatStyle): BeatStyle | undefined {
   if (s.place) out.place = s.place
   if (s.effect) out.effect = s.effect
   if (s.holdMs) out.holdMs = s.holdMs
+  if (s.sound && Object.keys(s.sound).length) out.sound = s.sound
   return Object.keys(out).length ? out : undefined
 }

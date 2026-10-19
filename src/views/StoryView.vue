@@ -73,14 +73,63 @@
           </label>
         </div>
 
-        <!-- Sound -->
-        <fieldset class="grid grid-cols-3 gap-3 rounded-lg border border-white/[0.06] p-3 text-xs">
-          <legend class="px-1 text-slate-400">Sound under the voice</legend>
-          <label v-for="m in mixes" :key="m.id" class="field" :title="m.hint">
-            <span>{{ m.label }} · {{ Math.round(levels[m.id] * 100) }}</span>
-            <input v-model.number="levels[m.id]" type="range" min="0" max="1" step="0.05" />
-          </label>
-          <p class="col-span-3 text-[11px] text-slate-600">Music and waves dip while the voice speaks. The binaural beat needs headphones and works best barely heard.</p>
+        <!-- Sound design -->
+        <fieldset class="space-y-3 rounded-lg border border-white/[0.06] p-3 text-xs">
+          <legend class="px-1 text-slate-400">Sound design</legend>
+          <div class="flex gap-1.5 flex-wrap items-center" role="radiogroup" aria-label="Mix preset">
+            <button
+              v-for="p in MIX_PRESETS"
+              :key="p.name"
+              class="chip"
+              role="radio"
+              :aria-checked="activePreset === p.name"
+              :class="{ 'chip--on': activePreset === p.name }"
+              @click="applyPreset(p)"
+            >{{ p.name }}</button>
+            <span v-for="p in customPresets" :key="p.name" class="inline-flex items-center">
+              <button class="chip" role="radio" :aria-checked="activePreset === p.name" :class="{ 'chip--on': activePreset === p.name }" @click="applyPreset(p)">{{ p.name }}</button>
+              <button class="text-slate-600 hover:text-rose-300 px-1" :aria-label="`Delete preset ${p.name}`" @click="removePreset(p.name)">×</button>
+            </span>
+          </div>
+          <div class="flex gap-2 items-center">
+            <input v-model="presetName" class="select flex-1" placeholder="Name this mix…" aria-label="Preset name" @keydown.enter="savePreset" />
+            <button class="chip" @click="savePreset">Save mix</button>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <label class="field">
+              <span>Key</span>
+              <select v-model.number="design.key" class="select">
+                <option v-for="k in KEYS" :key="k.semis" :value="k.semis">{{ k.label }} major</option>
+              </select>
+            </label>
+            <label class="field" title="How open the pad sounds — darker is more lulling">
+              <span>Warmth · {{ design.warmth < 0.35 ? 'dark' : design.warmth > 0.65 ? 'open' : 'warm' }}</span>
+              <input v-model.number="design.warmth" type="range" min="0" max="1" step="0.05" />
+            </label>
+            <div class="field col-span-2">
+              <span>Entrainment</span>
+              <div class="flex gap-1.5" role="radiogroup" aria-label="Entrainment">
+                <button v-for="e in entrainments" :key="e.id" class="chip flex-1 !px-2" role="radio" :aria-checked="design.entrainment === e.id" :class="{ 'chip--on': design.entrainment === e.id }" :title="e.hint" @click="design.entrainment = e.id">{{ e.label }}</button>
+              </div>
+            </div>
+            <label class="field col-span-2" title="The voice's room. It still moves closer as the stages deepen.">
+              <span>Voice room · {{ Math.round(design.room * 100) }}</span>
+              <input v-model.number="design.room" type="range" min="0" max="1" step="0.05" />
+            </label>
+          </div>
+          <div class="flex items-center gap-3 flex-wrap">
+            <label class="flex items-center gap-2 text-slate-400" title="Caps entrainment level and pulse depth, and softens every attack">
+              <input v-model="design.comfort" type="checkbox" /> Comfort mode
+            </label>
+            <button class="chip" :disabled="!!headphoneSide" @click="checkHeadphones">
+              {{ headphoneSide === 'left' ? '◀ Left ear…' : headphoneSide === 'right' ? 'Right ear… ▶' : 'Check headphones' }}
+            </button>
+          </div>
+          <p class="text-[11px] text-slate-600 leading-relaxed">
+            The beds dip while the voice speaks. Going down, waves and heartbeat fill in and the voice draws closer;
+            a bowl marks each deepening and a shimmer lifts into emerge and wake. Changes apply as you play.
+          </p>
         </fieldset>
 
         <!-- Voice -->
@@ -186,12 +235,27 @@
             <div class="absolute top-0 bottom-0 w-0.5 bg-white" :style="{ left: pct(cursorMs) }" />
           </div>
 
+          <!-- Level lanes: each bed across the story (stage arc × beat balance × fader) -->
+          <div class="relative -mt-1">
+            <svg :viewBox="`0 0 1000 ${LANE_H * lanes.length}`" preserveAspectRatio="none" class="w-full h-20 rounded bg-white/[0.02]" aria-label="Sound levels across the story" role="img">
+              <g v-for="l in lanes" :key="l.id">
+                <path :d="l.area" :fill="l.color" fill-opacity="0.18" />
+                <path :d="l.line" :stroke="l.color" stroke-width="1.25" fill="none" vector-effect="non-scaling-stroke" opacity="0.85" />
+              </g>
+              <line :x1="(cursorMs / timeline.durationMs) * 1000" :x2="(cursorMs / timeline.durationMs) * 1000" y1="0" :y2="LANE_H * lanes.length" stroke="white" stroke-width="1" vector-effect="non-scaling-stroke" opacity="0.6" />
+            </svg>
+            <div class="absolute inset-y-0 left-1 flex flex-col justify-around pointer-events-none" aria-hidden="true">
+              <span v-for="l in lanes" :key="l.id" class="text-[8px] leading-none uppercase tracking-wider" :style="{ color: l.color, opacity: 0.7 }">{{ stemLabel[l.id] }}</span>
+            </div>
+          </div>
+
           <div class="flex items-center gap-3 text-xs flex-wrap">
             <button class="chip" :disabled="isRecording" @click="togglePlay">{{ isPlaying ? 'Pause' : 'Play' }}</button>
             <span class="font-mono text-slate-500">{{ formatClock(cursorMs) }} / {{ formatClock(timeline.durationMs) }}</span>
             <span class="text-slate-600">{{ beatHzLabel }}</span>
             <span class="text-slate-600" :title="'Most flashes in any one second (WCAG 2.3.1 limit is 3)'">peak {{ flashRate }} flash/s</span>
             <span class="flex-1" />
+            <button class="chip" :disabled="stale || isRecording || exportingWav" title="Render the mix to a WAV file (faster than real time)" @click="exportWav">{{ exportingWav ? 'Rendering…' : 'Export audio' }}</button>
             <button v-if="!isRecording" class="chip chip--rec" :disabled="stale || isPlaying" @click="record">Export video</button>
             <button v-else class="chip" @click="player.stop()">Cancel export</button>
           </div>
@@ -200,6 +264,38 @@
             Keep this tab in front while it runs. Headphones carry the binaural beat.
             <span v-if="stale" class="text-amber-400/70">The story or voice changed — rebuild before exporting.</span>
           </p>
+
+          <!-- Trance mixer -->
+          <section class="rounded-lg border border-white/[0.06] p-3 space-y-2" aria-label="Mixer">
+            <div class="flex items-baseline justify-between gap-3 flex-wrap text-[11px]">
+              <span class="text-slate-400 uppercase tracking-widest">Mixer</span>
+              <span class="text-slate-600">Faders move the live mix. The lanes above show each bed across the story.</span>
+            </div>
+            <div v-for="st in STEMS" :key="st.id" class="grid grid-cols-[6.5rem_auto_1fr_2.5rem] gap-2 items-center text-xs" :title="st.hint">
+              <span class="flex items-center gap-1.5 truncate" :class="mix.muted[st.id] || (mix.solo && mix.solo !== st.id) ? 'text-slate-600' : 'text-slate-300'">
+                <span class="w-2 h-2 rounded-full shrink-0" :style="{ background: STEM_COLORS[st.id] }" />{{ st.label }}
+              </span>
+              <span class="flex gap-1">
+                <button class="ms" :class="{ 'ms--mute': mix.muted[st.id] }" :aria-pressed="mix.muted[st.id]" :aria-label="`Mute ${st.label}`" @click="toggleMute(st.id)">M</button>
+                <button class="ms" :class="{ 'ms--solo': mix.solo === st.id }" :aria-pressed="mix.solo === st.id" :aria-label="`Solo ${st.label}`" @click="toggleSolo(st.id)">S</button>
+              </span>
+              <span class="relative h-5 flex items-center">
+                <span class="absolute left-0 right-0 bottom-0 h-0.5 rounded bg-white/[0.04] overflow-hidden" aria-hidden="true">
+                  <span class="block h-full transition-[width] duration-75" :style="{ width: `${(player.meters.value[st.id] ?? 0) * 100}%`, background: STEM_COLORS[st.id] }" />
+                </span>
+                <input
+                  v-model.number="mix.faders[st.id]"
+                  type="range" min="0" max="1" step="0.01"
+                  class="w-full"
+                  :style="{ accentColor: STEM_COLORS[st.id] }"
+                  :aria-label="`${st.label} level`"
+                />
+              </span>
+              <span class="font-mono text-[10px] text-right" :class="st.id === 'binaural' && design.comfort && mix.faders.binaural > COMFORT_ENTRAINMENT_MAX ? 'text-amber-400/70' : 'text-slate-500'" :title="st.id === 'binaural' && design.comfort ? `Comfort mode caps this at ${COMFORT_ENTRAINMENT_MAX * 100}` : ''">
+                {{ Math.round(mix.faders[st.id] * 100) }}
+              </span>
+            </div>
+          </section>
 
         </template>
 
@@ -310,13 +406,23 @@
                   </option>
                 </select>
               </label>
+              <fieldset class="col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-2 rounded-md border border-white/[0.06] p-2">
+                <legend class="px-1 text-slate-500">Sound from this beat on <span class="text-slate-600">· on top of the stage arc</span></legend>
+                <label v-for="id in BED_STEMS" :key="id" class="field">
+                  <span class="flex justify-between">
+                    <span :class="styles[i]?.sound?.[id] != null ? 'text-slate-300' : ''">{{ stemLabel[id] }} · {{ Math.round((beatSoundResolved[i]?.[id] ?? 1) * 100) }}%</span>
+                    <button v-if="styles[i]?.sound?.[id] != null" class="text-slate-600 hover:text-slate-300" :aria-label="`Reset ${stemLabel[id]} for this beat`" @click="setBeatSound(i, id, undefined)">↺</button>
+                  </span>
+                  <input type="range" min="0" max="1.5" step="0.05" :value="beatSoundResolved[i]?.[id] ?? 1" @input="setBeatSound(i, id, Number(($event.target as HTMLInputElement).value))" />
+                </label>
+              </fieldset>
               <label class="field col-span-2">
                 <span>Hold after the beat · +{{ ((styles[i]?.holdMs ?? 0) / 1000).toFixed(1) }} s</span>
                 <input type="range" min="0" :max="MAX_HOLD_MS" step="500" :value="styles[i]?.holdMs ?? 0" @input="setStyle(i, { holdMs: Number(($event.target as HTMLInputElement).value) })" />
               </label>
               <div class="col-span-2 flex items-center justify-between text-[11px] text-slate-600">
-                <span>Backdrop and placement preview now; effect and hold apply on rebuild.</span>
-                <button v-if="styles[i]" class="link" @click="setStyle(i, { backdrop: undefined, place: undefined, effect: undefined, holdMs: undefined })">Clear style</button>
+                <span>Backdrop, placement and sound apply now; effect and hold on rebuild.</span>
+                <button v-if="styles[i]" class="link" @click="setStyle(i, { backdrop: undefined, place: undefined, effect: undefined, holdMs: undefined, sound: undefined })">Clear style</button>
               </div>
             </div>
             <div class="pb-1.5" />
@@ -336,9 +442,15 @@ import {
 } from '@/story/storyBeats'
 import { EFFECTS, GENTLE_EFFECT, maxFlashesPerSecond, type Effect, type Look } from '@/story/effects'
 import { loadEffectFonts } from '@/story/drawEffects'
-import { renderSoundtrack, voiceBuffer, DEFAULT_LEVELS, type SoundtrackLevels } from '@/story/renderSoundtrack'
+import { voiceBuffer } from '@/story/score'
+import { renderMixdown, encodeWav } from '@/story/mixer'
+import {
+  STEMS, BED_STEMS, KEYS, MIX_PRESETS, COMFORT_ENTRAINMENT_MAX, DEFAULT_DESIGN, defaultMix, stemGain,
+  buildAutomation, resolveBeatSound, autoValueAt,
+  type MixState, type SoundDesign, type StemId, type BedStem, type Entrainment, type MixPreset,
+} from '@/story/trance'
 import { readPack, decodeAudioFile, voiceScript, type VoiceClip, type PackMeta } from '@/story/voicePack'
-import { useStoryPlayer, drawStoryFrame, canvasSizeFor, STORY_FADE_S, type FrameOptions, type StoryMedia, type SceneInput } from '@/story/useStoryPlayer'
+import { useStoryPlayer, headphoneCheck, drawStoryFrame, canvasSizeFor, STORY_FADE_S, type FrameOptions, type StoryMedia, type SceneInput } from '@/story/useStoryPlayer'
 import { resolveScenes, remapStyles, cleanStyle, MAX_HOLD_MS, type Backdrop, type BeatStyle, type TextPlace } from '@/story/beatStyle'
 import { pickMime } from '@/composables/useGlassExport'
 import { useVoice } from '@/composables/useVoice'
@@ -357,12 +469,59 @@ const looks: { id: Look; label: string; hint: string }[] = [
   { id: 'bold', label: 'Bold', hint: 'Flash, slam, scatter and visible subliminals' },
 ]
 
-const levels = reactive<SoundtrackLevels>({ ...DEFAULT_LEVELS })
-const mixes: { id: keyof SoundtrackLevels; label: string; hint: string }[] = [
-  { id: 'music', label: 'Music', hint: 'Warm pad that changes chord with the stages' },
-  { id: 'waves', label: 'Waves', hint: 'Soft ocean-like noise' },
-  { id: 'binaural', label: 'Binaural', hint: 'Entrainment beat (headphones)' },
+// ── Trance mixer + sound design ──
+// Both apply live: faders move the running mix; design changes restart the
+// score from the cursor (no rebuild — the score is scheduled, not rendered).
+const mix = reactive<MixState>(defaultMix())
+const design = reactive<SoundDesign>({ ...DEFAULT_DESIGN })
+const entrainments: { id: Entrainment; label: string; hint: string }[] = [
+  { id: 'binaural', label: 'Binaural', hint: 'Two tones, one per ear — needs headphones' },
+  { id: 'isochronic', label: 'Pulse', hint: 'A soft swell at the beat rate — works on speakers' },
+  { id: 'both', label: 'Both', hint: 'Binaural plus the soft swell' },
 ]
+const stemLabel = Object.fromEntries(STEMS.map((s) => [s.id, s.label])) as Record<StemId, string>
+const STEM_COLORS: Record<StemId, string> = {
+  voice: '#f7f1e6', music: '#fcd34d', waves: '#7dd3fc', binaural: '#a78bfa', heart: '#fb7185', cues: '#86efac',
+}
+
+const PRESET_KEY = 'cz-story-mix-presets'
+function loadCustomPresets(): MixPreset[] {
+  try { return JSON.parse(localStorage.getItem(PRESET_KEY) ?? '[]') as MixPreset[] } catch { return [] }
+}
+const customPresets = ref<MixPreset[]>(loadCustomPresets())
+const activePreset = ref('Balanced')
+
+function applyPreset(p: MixPreset) {
+  Object.assign(mix.faders, p.faders)
+  Object.assign(design, p.design)
+  activePreset.value = p.name
+}
+
+const presetName = ref('')
+function savePreset() {
+  const taken = new Set([...MIX_PRESETS, ...customPresets.value].map((p) => p.name))
+  let name = presetName.value.trim() || `My mix ${customPresets.value.length + 1}`
+  while (taken.has(name)) name += ' ·'
+  presetName.value = ''
+  const preset: MixPreset = { name, faders: { ...mix.faders }, design: { ...design } }
+  customPresets.value = [...customPresets.value, preset]
+  activePreset.value = name
+  try { localStorage.setItem(PRESET_KEY, JSON.stringify(customPresets.value)) } catch { /* storage blocked */ }
+}
+
+function removePreset(name: string) {
+  customPresets.value = customPresets.value.filter((p) => p.name !== name)
+  try { localStorage.setItem(PRESET_KEY, JSON.stringify(customPresets.value)) } catch { /* storage blocked */ }
+}
+
+function toggleMute(id: StemId) { mix.muted[id] = !mix.muted[id] }
+function toggleSolo(id: StemId) { mix.solo = mix.solo === id ? null : id }
+
+const headphoneSide = ref<'left' | 'right' | null>(null)
+function checkHeadphones() {
+  if (headphoneSide.value) return
+  void headphoneCheck((side) => { headphoneSide.value = side })
+}
 
 const parsed = computed(() => parseStory(text.value))
 
@@ -572,16 +731,16 @@ function freshBeat(i: number) {
   return !stale.value ? timeline.value?.beats[i] ?? null : null
 }
 
-// ── Build: parse → voice → timeline → offline soundtrack ──
+// ── Build: parse → voice → timeline (the score is scheduled at play time) ──
 const timeline = shallowRef<Timeline | null>(null)
-const soundtrack = shallowRef<AudioBuffer | null>(null)
+const voices = shallowRef<(AudioBuffer | null)[]>([])
 const building = ref(false)
 const buildStep = ref('')
 const buildError = ref('')
 const builtKey = ref('')
 /** The style fields that change timing (draw-only ones preview without a rebuild). */
 const timingStyles = computed(() => parsed.value.map((_, i) => [styles.value[i]?.effect, styles.value[i]?.holdMs]))
-const inputKey = computed(() => JSON.stringify([text.value, wpm.value, voiceMode.value, clipsVersion.value, kokoroStatus.value, look.value, levels, timingStyles.value]))
+const inputKey = computed(() => JSON.stringify([text.value, wpm.value, voiceMode.value, clipsVersion.value, kokoroStatus.value, look.value, timingStyles.value]))
 const stale = computed(() => !timeline.value || builtKey.value !== inputKey.value)
 
 async function build() {
@@ -591,19 +750,19 @@ async function build() {
   try {
     await loadEffectFonts()
     const beats = parseStory(text.value)
-    const voices: (AudioBuffer | null)[] = beats.map(() => null)
+    const voiced: (AudioBuffer | null)[] = beats.map(() => null)
     const alignments: (Alignment | null)[] = beats.map(() => null)
     if (voiceMode.value === 'pack') {
       beats.forEach((b, i) => {
         const clip = b.text ? clips.value.get(b.id) : undefined
-        if (clip) { voices[i] = clip.buffer; alignments[i] = clip.alignment }
+        if (clip) { voiced[i] = clip.buffer; alignments[i] = clip.alignment }
       })
     } else if (voiceMode.value === 'local' && kokoroStatus.value === 'ready') {
       for (let i = 0; i < beats.length; i++) {
         if (!beats[i].text) continue
         buildStep.value = `Voicing beat ${i + 1} of ${beats.length}…`
         const raw = await synthesize(beats[i].text)
-        if (raw) voices[i] = voiceBuffer(raw.audio, raw.sampling_rate)
+        if (raw) voiced[i] = voiceBuffer(raw.audio, raw.sampling_rate)
       }
     }
     const tl = buildTimeline(beats, {
@@ -611,11 +770,10 @@ async function build() {
       look: look.value,
       effects: beats.map((_, i) => styles.value[i]?.effect),
       holdMs: beats.map((_, i) => styles.value[i]?.holdMs),
-      voiceMs: voices.map((v) => (v ? v.duration * 1000 : null)),
+      voiceMs: voiced.map((v) => (v ? v.duration * 1000 : null)),
       alignments,
     })
-    buildStep.value = 'Rendering soundtrack…'
-    soundtrack.value = await renderSoundtrack(tl, voices, { fadeS: STORY_FADE_S, levels: { ...levels } })
+    voices.value = voiced
     timeline.value = tl
     builtKey.value = key
     cursorMs.value = Math.min(cursorMs.value, tl.durationMs)
@@ -644,6 +802,60 @@ const frameOptions = computed<FrameOptions>(() => ({
 watch(player.clockMs, (t) => { if (player.state.value !== 'idle') cursorMs.value = t })
 watch([frameOptions, sceneInput], () => drawStill())
 
+// ── Audio-only export ──
+const exportingWav = ref(false)
+async function exportWav() {
+  if (!timeline.value || !automation.value || exportingWav.value) return
+  exportingWav.value = true
+  try {
+    const buf = await renderMixdown({
+      timeline: timeline.value, voices: voices.value, design: snapshot(design), mix: snapshot(mix),
+      automation: automation.value, fadeS: STORY_FADE_S,
+    })
+    const url = URL.createObjectURL(encodeWav(buf))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'channelzero-story.wav'
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  } catch (err) {
+    console.error('[story] wav export failed', err)
+    buildError.value = 'The audio export failed.'
+  } finally {
+    exportingWav.value = false
+  }
+}
+
+// ── Level lanes: what each bed actually does across the story ──
+/** One stacked lane per bed: its level (stage arc × beat balance × fader) as a filled curve. */
+const LANE_H = 10
+const lanes = computed(() => {
+  const tl = timeline.value
+  const auto = automation.value
+  if (!tl || !auto) return []
+  const W = 1000
+  return BED_STEMS.map((id, row) => {
+    const g = stemGain(mix, id, design.comfort)
+    const pts = auto[id]
+    const base = (row + 1) * LANE_H
+    const xs = [...new Set([0, tl.durationMs, ...pts.map((p) => p.tMs)])].sort((a, b) => a - b)
+    const coords = xs.map((t) => {
+      const v = Math.min(1, autoValueAt(pts, t) * g)
+      return `${((t / tl.durationMs) * W).toFixed(1)},${(base - v * (LANE_H - 1)).toFixed(2)}`
+    })
+    const line = `M${coords.join(' L')}`
+    return { id, line, area: `${line} L${W},${base} L0,${base} Z`, color: STEM_COLORS[id] }
+  })
+})
+
+function setBeatSound(i: number, id: BedStem, value: number | undefined) {
+  const sound = { ...styles.value[i]?.sound }
+  if (value == null) delete sound[id]
+  else sound[id] = value
+  setStyle(i, { sound })
+}
+const beatSoundResolved = computed(() => resolveBeatSound(styles.value.map((s) => s?.sound), parsed.value.length))
+
 function drawStill() {
   const c = canvasRef.value
   const tl = timeline.value
@@ -652,13 +864,35 @@ function drawStill() {
   drawStoryFrame(ctx, tl, cursorMs.value, sceneInput.value, frameOptions.value)
 }
 
+/** Stage × beat level curves for the beds, from the built timeline and the beat editor. */
+const automation = computed(() => {
+  const tl = timeline.value
+  if (!tl) return null
+  return buildAutomation(tl, resolveBeatSound(tl.beats.map((_, i) => styles.value[i]?.sound), tl.beats.length))
+})
+
+const snapshot = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T
+
+// Faders, mute and solo move the running mix; design and automation changes
+// re-schedule the score from where it is.
+watch(mix, () => player.setMix(snapshot(mix), design.comfort), { deep: true })
+watch([() => JSON.stringify(design), automation], () => {
+  if (isPlaying.value) start({ record: false })
+})
+watch(() => design.comfort, (on) => {
+  if (on && mix.faders.binaural > COMFORT_ENTRAINMENT_MAX) mix.faders.binaural = COMFORT_ENTRAINMENT_MAX
+})
+
 function start(opts: { record: boolean }) {
-  if (!timeline.value || !soundtrack.value || !canvasRef.value) return
+  if (!timeline.value || !automation.value || !canvasRef.value) return
   void player.play({
     canvas: canvasRef.value,
     scene: sceneInput.value,
-    soundtrack: soundtrack.value,
     timeline: timeline.value,
+    voices: voices.value,
+    design: snapshot(design),
+    mix: snapshot(mix),
+    automation: automation.value,
     frame: frameOptions.value,
     record: opts.record,
     fromMs: cursorMs.value >= timeline.value.durationMs - 500 ? 0 : cursorMs.value,
@@ -726,6 +960,9 @@ onUnmounted(() => {
 .select option { background: #111; }
 .color { @apply w-10 h-7 rounded border border-white/10 bg-transparent cursor-pointer; }
 .chip--inherited { @apply border-dashed; }
+.ms { @apply w-5 h-5 rounded text-[10px] border border-white/10 text-slate-500 hover:text-slate-200; }
+.ms--mute { @apply bg-rose-500/30 border-rose-400/40 text-rose-100; }
+.ms--solo { @apply bg-amber-400/30 border-amber-300/40 text-amber-100; }
 
 .stage-chip { @apply text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded text-black/80; }
 .stage-induce   { background: #7dd3fc; }
