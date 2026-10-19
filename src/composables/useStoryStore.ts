@@ -1,4 +1,5 @@
 import { ref, computed } from 'vue'
+import { chunkPhrases, splitWords, SENTENCE_HOLD, type Phrase } from '@/story/phrases'
 
 // Shared state — module-level so it persists across all consumers
 const storyText = ref(``)
@@ -18,44 +19,14 @@ const phraseMode = ref(true)
 const tranceSynced = ref(false)
 const TRANCE_PHRASE_MS = Math.round(1000 / 2.4) // 417 ms @ 2.4 Hz
 
-interface Phrase {
-  text: string
-  startIdx: number
-  endIdx: number
-  isPausePoint: boolean // sentence-ending punctuation → extra hold
-}
-
-const words = computed(() => storyText.value.split(/\s+/).filter((w) => w.length > 0))
+const words = computed(() => splitWords(storyText.value))
 const currentWord = computed(() => words.value[currentIndex.value] || '')
 const progress = computed(() =>
   words.value.length > 0 ? ((currentIndex.value + 1) / words.value.length) * 100 : 0
 )
 
 // Chunk words into 2–3 word phrases, breaking at punctuation boundaries
-const phrases = computed<Phrase[]>(() => {
-  const ws = words.value
-  if (!ws.length) return []
-  const result: Phrase[] = []
-  let start = 0
-  let count = 0
-  for (let i = 0; i < ws.length; i++) {
-    count++
-    const word = ws[i]
-    const isSentenceEnd = /[.!?]['"]?$/.test(word)
-    const isClauseEnd = /[,;:—…]['"]?$/.test(word) && count >= 2
-    if (isSentenceEnd || isClauseEnd || count >= 3 || i === ws.length - 1) {
-      result.push({
-        text: ws.slice(start, i + 1).join(' '),
-        startIdx: start,
-        endIdx: i,
-        isPausePoint: isSentenceEnd
-      })
-      start = i + 1
-      count = 0
-    }
-  }
-  return result
-})
+const phrases = computed<Phrase[]>(() => chunkPhrases(words.value))
 
 // Which phrase contains currentIndex
 const currentPhraseIndex = computed(() => {
@@ -111,7 +82,7 @@ function schedule() {
   if (!isPlaying.value) return
   const ph = phrases.value[currentPhraseIndex.value]
   // Add an extra beat at sentence endings for natural breath
-  const ms = phraseMode.value && ph?.isPausePoint ? Math.round(getMs() * 1.45) : getMs()
+  const ms = phraseMode.value && ph?.isPausePoint ? Math.round(getMs() * SENTENCE_HOLD) : getMs()
   timeoutId = window.setTimeout(tick, ms)
 }
 

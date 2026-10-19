@@ -31,8 +31,8 @@ let exportCtx: CanvasRenderingContext2D | null = null
 let rafId: number | undefined
 let endHandler: (() => void) | null = null
 
-/** Pick the best supported container. */
-function pickMime(): string {
+/** Pick the best supported container. Shared with the story export. */
+export function pickMime(): string {
   for (const mime of [
     'video/mp4;codecs=avc1,mp4a.40.2',
     'video/webm;codecs=vp9,opus',
@@ -42,6 +42,18 @@ function pickMime(): string {
     if (MediaRecorder.isTypeSupported(mime)) return mime
   }
   return 'video/webm'
+}
+
+/** Save recorded chunks as `<prefix>-<ts>.mp4|webm`. Shared with the story export. */
+export function downloadRecording(chunks: Blob[], mimeType: string, prefix: string) {
+  const ext = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm'
+  const blob = new Blob(chunks, { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${prefix}-${Date.now()}.${ext}`
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 5000)
 }
 
 export interface ExportOptions {
@@ -98,15 +110,7 @@ export function useGlassExport() {
     }
 
     recorder.onstop = () => {
-      // Download the file
-      const ext = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm'
-      const blob = new Blob(chunks, { type: mimeType })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `glass-export-${Date.now()}.${ext}`
-      a.click()
-      setTimeout(() => URL.revokeObjectURL(url), 5000)
+      downloadRecording(chunks, mimeType, 'glass-export')
 
       // Tear down the export-only connection
       try { audioOut.disconnect(audioDest) } catch { /* ok */ }
