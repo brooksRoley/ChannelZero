@@ -37,6 +37,11 @@ const groups: Group[] = [
         path: '/studio',
         description: 'Upload video or audio, layer subliminal text overlays, and compose real binaural entrainment — then export the finished composition.',
         featured: true
+      },
+      {
+        title: 'Story Studio',
+        path: '/story',
+        description: 'Write a story in beats and export it as a video: voiced lines, phrase overlays and a binaural beat that deepens with the story, over your own footage.'
       }
     ]
   },

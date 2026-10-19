@@ -39,7 +39,7 @@ function generationTimeoutMs(text: string): number {
 
 // ── Minimal kokoro-js surface we use (keeps the import type-only) ──
 
-interface KokoroAudio {
+export interface KokoroAudio {
   audio: Float32Array
   sampling_rate: number
 }
@@ -227,6 +227,22 @@ function say(text: string): Promise<void> {
 }
 
 /**
+ * Render one line to raw samples with the local neural voice, without playing
+ * it — for offline mixing (story export). Web Speech can't be captured, so
+ * this returns null unless Kokoro is ready, or if generation fails.
+ */
+async function synthesize(text: string): Promise<KokoroAudio | null> {
+  const line = text.trim()
+  if (!line || !kokoro || kokoroStatus.value !== 'ready') return null
+  try {
+    return await withTimeout(kokoro.generate(line, { voice: KOKORO_VOICE, speed: KOKORO_SPEED }), generationTimeoutMs(line))
+  } catch (err) {
+    console.warn('[useVoice] kokoro synthesis failed', err)
+    return null
+  }
+}
+
+/**
  * Opt in to the local neural voice. Lazily imports kokoro-js and downloads
  * the model (~90 MB once, then browser-cached). Returns false and stays on
  * Web Speech if anything fails.
@@ -263,6 +279,7 @@ export function useVoice() {
   return {
     say,
     cancel,
+    synthesize,
     backend: readonly(backend),
     kokoroStatus: readonly(kokoroStatus),
     supported,
