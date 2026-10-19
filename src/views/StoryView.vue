@@ -7,8 +7,8 @@
         <header>
           <h1 class="text-white/90 text-lg font-light tracking-[0.25em] uppercase">Story Studio</h1>
           <p class="text-slate-500 text-xs mt-1 leading-relaxed">
-            The story is read aloud; its key phrases land on screen as they're spoken — flashed, slammed,
-            whispered, typed — with subliminals underneath and a binaural beat that deepens with the story.
+            The story is read aloud over warm music that deepens with it. You can follow along on a reading
+            line while key phrases bloom as they're spoken — or switch to Bold for flashes and subliminals.
           </p>
         </header>
 
@@ -55,10 +55,26 @@
             <span>Reading pace (unvoiced beats) · {{ wpm }} wpm</span>
             <input v-model.number="wpm" type="range" min="90" max="220" step="5" />
           </label>
-          <label class="flex items-center gap-2 text-slate-400">
-            <input v-model="captions" type="checkbox" /> Subtitles under the effects
+          <div class="field">
+            <span>Look</span>
+            <div class="flex gap-2" role="radiogroup" aria-label="Look">
+              <button v-for="l in looks" :key="l.id" class="chip flex-1" role="radio" :aria-checked="look === l.id" :class="{ 'chip--on': look === l.id }" :title="l.hint" @click="look = l.id">{{ l.label }}</button>
+            </div>
+          </div>
+          <label class="flex items-center gap-2 text-slate-400 self-end pb-2">
+            <input v-model="captions" type="checkbox" /> Show the story as a reading line
           </label>
         </div>
+
+        <!-- Sound -->
+        <fieldset class="grid grid-cols-3 gap-3 rounded-lg border border-white/[0.06] p-3 text-xs">
+          <legend class="px-1 text-slate-400">Sound under the voice</legend>
+          <label v-for="m in mixes" :key="m.id" class="field" :title="m.hint">
+            <span>{{ m.label }} · {{ Math.round(levels[m.id] * 100) }}</span>
+            <input v-model.number="levels[m.id]" type="range" min="0" max="1" step="0.05" />
+          </label>
+          <p class="col-span-3 text-[11px] text-slate-600">Music and waves dip while the voice speaks. The binaural beat needs headphones and works best barely heard.</p>
+        </fieldset>
 
         <!-- Voice -->
         <fieldset class="space-y-3 rounded-lg border border-white/[0.06] p-3">
@@ -204,15 +220,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, shallowRef, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { STORY_SAMPLES } from '@/data/storySamples'
 import {
   parseStory, buildTimeline, beatIndexAt, entrainmentAt, formatClock, STAGES,
   type Timeline, type TimedKey, type StoryStage, type Alignment,
 } from '@/story/storyBeats'
-import { EFFECTS, maxFlashesPerSecond } from '@/story/effects'
+import { EFFECTS, maxFlashesPerSecond, type Look } from '@/story/effects'
 import { loadEffectFonts } from '@/story/drawEffects'
-import { renderSoundtrack, voiceBuffer } from '@/story/renderSoundtrack'
+import { renderSoundtrack, voiceBuffer, DEFAULT_LEVELS, type SoundtrackLevels } from '@/story/renderSoundtrack'
 import { readPack, decodeAudioFile, voiceScript, type VoiceClip, type PackMeta } from '@/story/voicePack'
 import { useStoryPlayer, drawStoryFrame, canvasSizeFor, STORY_FADE_S, type FrameOptions } from '@/story/useStoryPlayer'
 import { pickMime } from '@/composables/useGlassExport'
@@ -223,8 +239,21 @@ const effectNames = Object.keys(EFFECTS)
 
 const text = ref(STORY_SAMPLES[0].text)
 const wpm = ref(140)
-const captions = ref(false)
+const captions = ref(true)
 const credit = ref(true)
+
+const look = ref<Look>('gentle')
+const looks: { id: Look; label: string; hint: string }[] = [
+  { id: 'gentle', label: 'Gentle', hint: 'Readable story line, key phrases bloom softly one at a time' },
+  { id: 'bold', label: 'Bold', hint: 'Flash, slam, scatter and visible subliminals' },
+]
+
+const levels = reactive<SoundtrackLevels>({ ...DEFAULT_LEVELS })
+const mixes: { id: keyof SoundtrackLevels; label: string; hint: string }[] = [
+  { id: 'music', label: 'Music', hint: 'Warm pad that changes chord with the stages' },
+  { id: 'waves', label: 'Waves', hint: 'Soft ocean-like noise' },
+  { id: 'binaural', label: 'Binaural', hint: 'Entrainment beat (headphones)' },
+]
 
 const parsed = computed(() => parseStory(text.value))
 
@@ -341,7 +370,7 @@ const building = ref(false)
 const buildStep = ref('')
 const buildError = ref('')
 const builtKey = ref('')
-const inputKey = computed(() => JSON.stringify([text.value, wpm.value, voiceMode.value, clipsVersion.value, kokoroStatus.value]))
+const inputKey = computed(() => JSON.stringify([text.value, wpm.value, voiceMode.value, clipsVersion.value, kokoroStatus.value, look.value, levels]))
 const stale = computed(() => !timeline.value || builtKey.value !== inputKey.value)
 
 async function build() {
@@ -368,11 +397,12 @@ async function build() {
     }
     const tl = buildTimeline(beats, {
       wpm: wpm.value,
+      look: look.value,
       voiceMs: voices.map((v) => (v ? v.duration * 1000 : null)),
       alignments,
     })
     buildStep.value = 'Rendering soundtrack…'
-    soundtrack.value = await renderSoundtrack(tl, voices, { fadeS: STORY_FADE_S })
+    soundtrack.value = await renderSoundtrack(tl, voices, { fadeS: STORY_FADE_S, levels: { ...levels } })
     timeline.value = tl
     builtKey.value = key
     cursorMs.value = Math.min(cursorMs.value, tl.durationMs)

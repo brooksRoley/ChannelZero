@@ -1,6 +1,6 @@
 import { mulberry32 } from '@/composables/useGlassComposer'
 import { STROBE_PERIOD_MS, SUBLIMINAL_MS, type SubliminalFlash } from './effects'
-import type { TimedKey } from './storyBeats'
+import type { TimedKey, TimedLine } from './storyBeats'
 
 /**
  * Canvas renderers for key-phrase effects and subliminals. Every effect is a
@@ -197,7 +197,77 @@ function drawHand(ctx: CanvasRenderingContext2D, key: TimedKey, tMs: number, { w
   ctx.fillText(key.text, 0, 0)
 }
 
-const DRAW = { flash: drawFlash, slam: drawSlam, whisper: drawWhisper, type: drawType, echo: drawEcho, scatter: drawScatter, hand: drawHand }
+function drawBloom(ctx: CanvasRenderingContext2D, key: TimedKey, tMs: number, { w, h }: Size) {
+  const u = tMs - key.startMs
+  const d = key.endMs - key.startMs
+  const inA = easeOut(u / 800)
+  const outA = clamp01((key.endMs - tMs) / 900)
+  const px = fitFont(ctx, '500', FONTS.serif, key.text, w * 0.062 * (1 + 0.03 * (u / d)), w * 0.8)
+  ;(ctx as unknown as { letterSpacing: string }).letterSpacing = '0.02em'
+  ctx.globalAlpha = 0.95 * inA * outA
+  ctx.shadowColor = 'rgba(255, 186, 120, 0.55)'
+  ctx.shadowBlur = px * 0.6
+  ctx.fillStyle = '#fff3e0'
+  ctx.fillText(key.text, w / 2, h * 0.4)
+}
+
+const DRAW: Record<TimedKey['effect'], typeof drawFlash> = {
+  flash: drawFlash, slam: drawSlam, whisper: drawWhisper, type: drawType, echo: drawEcho,
+  scatter: drawScatter, hand: drawHand, bloom: drawBloom,
+}
+
+/**
+ * The reading line: the current sentence in the lower third on a soft
+ * backdrop, each word brightening as it's spoken, key words in warm gold.
+ */
+export function drawReadingLine(ctx: CanvasRenderingContext2D, line: TimedLine, tMs: number, { w, h }: Size) {
+  const alpha = Math.min(clamp01((tMs - line.startMs) / 350), clamp01((line.endMs - tMs) / 450))
+  if (alpha <= 0) return
+  ctx.save()
+  const band = ctx.createLinearGradient(0, h * 0.6, 0, h)
+  band.addColorStop(0, 'rgba(0,0,0,0)')
+  band.addColorStop(1, `rgba(0,0,0,${0.55 * alpha})`)
+  ctx.fillStyle = band
+  ctx.fillRect(0, h * 0.6, w, h * 0.4)
+
+  const px = Math.max(18, Math.round(w * 0.036))
+  ctx.font = `500 ${px}px ${FONTS.serif}`
+  ctx.textBaseline = 'middle'
+  ctx.textAlign = 'left'
+  const space = ctx.measureText(' ').width
+  const maxW = w * 0.8
+
+  // Lay words into rows.
+  const rows: { words: { text: string; i: number; wpx: number }[]; width: number }[] = [{ words: [], width: 0 }]
+  line.words.forEach((word, i) => {
+    const wpx = ctx.measureText(word.text).width
+    let row = rows[rows.length - 1]
+    if (row.words.length && row.width + space + wpx > maxW) rows.push((row = { words: [], width: 0 }))
+    row.width += (row.words.length ? space : 0) + wpx
+    row.words.push({ text: word.text, i, wpx })
+  })
+
+  const lh = px * 1.35
+  const bottom = h * 0.88
+  let offset = 0
+  const charAt: number[] = line.words.map((wd) => { const o = offset; offset += wd.text.length + 1; return o })
+  const inKey = (i: number) => line.keySpans.some(([a, b]) => charAt[i] >= a && charAt[i] < b)
+
+  ctx.shadowColor = 'rgba(0,0,0,0.7)'
+  ctx.shadowBlur = px * 0.3
+  rows.forEach((row, r) => {
+    let x = (w - row.width) / 2
+    const y = bottom - (rows.length - 1 - r) * lh
+    for (const word of row.words) {
+      const spoken = tMs >= line.words[word.i].startMs
+      ctx.globalAlpha = alpha * (spoken ? 1 : 0.5)
+      ctx.fillStyle = inKey(word.i) ? '#ffd9a0' : '#f7f1e6'
+      ctx.fillText(word.text, x, y)
+      x += word.wpx + space
+    }
+  })
+  ctx.restore()
+}
 
 /** Draw every key phrase on screen at tMs. */
 export function drawKeys(ctx: CanvasRenderingContext2D, keys: TimedKey[], tMs: number, size: Size) {
@@ -214,7 +284,7 @@ export function drawKeys(ctx: CanvasRenderingContext2D, keys: TimedKey[], tMs: n
 const SUB_FACES: [string, string][] = [['', FONTS.display], ['italic 300', FONTS.serif], ['300', FONTS.mono], ['600', FONTS.hand]]
 
 /** Draw any subliminal whose brief window contains tMs. */
-export function drawSubliminals(ctx: CanvasRenderingContext2D, subs: SubliminalFlash[], tMs: number, { w, h }: Size) {
+export function drawSubliminals(ctx: CanvasRenderingContext2D, subs: SubliminalFlash[], tMs: number, { w, h }: Size, gentle = false) {
   for (const s of subs) {
     if (tMs < s.atMs || tMs >= s.atMs + SUBLIMINAL_MS) continue
     const rand = mulberry32(s.seed * 7 + 3)
@@ -223,9 +293,10 @@ export function drawSubliminals(ctx: CanvasRenderingContext2D, subs: SubliminalF
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     fitFont(ctx, style, family, s.text, w * (0.06 + rand() * 0.05), w * 0.6)
-    ctx.globalAlpha = 0.6
-    ctx.globalCompositeOperation = 'difference'
-    ctx.fillStyle = '#ffffff'
+    // Gentle: a faint presence, felt more than seen. Bold: an inverted cut.
+    ctx.globalAlpha = gentle ? 0.18 : 0.6
+    ctx.globalCompositeOperation = gentle ? 'source-over' : 'difference'
+    ctx.fillStyle = gentle ? '#efe6ff' : '#ffffff'
     ctx.fillText(s.text, w * (0.2 + rand() * 0.6), h * (0.2 + rand() * 0.6))
     ctx.restore()
   }

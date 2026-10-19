@@ -1,24 +1,22 @@
 import { ref, readonly } from 'vue'
-import { drawFrame, drawFade, safeVisualHz } from '@/composables/useGlassComposer'
+import { drawFade, safeVisualHz } from '@/composables/useGlassComposer'
 import { pickMime, downloadRecording } from '@/composables/useGlassExport'
-import { makeDefaultTextLayer, type TextLayer } from '@/composables/studioTypes'
 import { sessionEnvelope } from '@/composables/studioTrim'
-import { frameAt, depthDimAt, type Timeline } from './storyBeats'
-import { drawKeys, drawSubliminals, drawCredit } from './drawEffects'
+import { frameAt, depthDimAt, lineAt, type Timeline } from './storyBeats'
+import { drawKeys, drawSubliminals, drawCredit, drawReadingLine } from './drawEffects'
 
 /**
  * Plays — and optionally records — a story: the pre-rendered soundtrack is
  * the master clock; each frame draws the looping background video (or a
  * breathing field), dims it with depth, then draws the key-phrase effects and
- * subliminals (drawEffects) and, optionally, subtitles via the Glass Studio's
- * shared `drawFrame`. Recording taps the same canvas and
+ * subliminals (drawEffects) and, optionally, the reading line. Recording taps the same canvas and
  * soundtrack into a MediaRecorder (mp4 where the browser supports it).
  *
  * Recording runs in real time, like the studio export.
  */
 
 export interface FrameOptions {
-  /** Show every phrase as a subtitle line under the key-phrase effects. */
+  /** Show the story as a reading line (current sentence, words lit as spoken). */
   captions: boolean
   /** Attribution drawn over the closing seconds (e.g. "Voice: ElevenLabs"). */
   credit?: string
@@ -26,17 +24,6 @@ export interface FrameOptions {
 
 /** Fade to/from black at the session edges, seconds (matches the soundtrack). */
 export const STORY_FADE_S = 3
-
-/** PURE: the subtitle layer for this frame's phrase. */
-export function captionLayer(text: string, alpha: number): TextLayer {
-  return makeDefaultTextLayer({
-    content: [text],
-    font: { family: 'Georgia, "Iowan Old Style", serif', sizeVw: 2.6, weight: 400, letterSpacing: 0.01, upper: false },
-    pos: { anchor: 'bc', dx: 0, dy: -2 },
-    style: { color: '#f4efe6', opacity: alpha * 0.85, blend: 'normal' },
-    timing: { mode: 'persistent', holdMs: 0, fadeMs: 0, intervalMs: 0, flashMs: 0 },
-  })
-}
 
 /** Canvas size for a background: its own aspect, longest edge ≤ 1920. */
 export function canvasSizeFor(video: HTMLVideoElement | null): { w: number; h: number } {
@@ -99,11 +86,12 @@ export function drawStoryFrame(
   ctx.fillRect(0, 0, w, h)
   ctx.restore()
 
-  if (opts.captions && frame.text && frame.alpha > 0.001) {
-    drawFrame(ctx, tMs, [captionLayer(frame.text, frame.alpha)], size)
-  }
+  drawSubliminals(ctx, tl.subliminals, tMs, size, tl.look === 'gentle')
   drawKeys(ctx, tl.keys, tMs, size)
-  drawSubliminals(ctx, tl.subliminals, tMs, size)
+  if (opts.captions) {
+    const line = lineAt(tl, tMs)
+    if (line) drawReadingLine(ctx, line, tMs, size)
+  }
   if (opts.credit) drawCredit(ctx, opts.credit, creditAlpha(tl, tMs), size)
 
   drawFade(ctx, size, sessionEnvelope({ startS: 0, endS: tl.durationMs / 1000 }, tMs / 1000, STORY_FADE_S))

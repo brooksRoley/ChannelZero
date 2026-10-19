@@ -7,12 +7,19 @@
 //
 //   export ELEVENLABS_API_KEY=...            (never commit it)
 //   node tools/voice/elevenlabs.mjs --list-voices
+//   node tools/voice/elevenlabs.mjs story-voice-script.json --audition <id>,<id>,<id>
 //   node tools/voice/elevenlabs.mjs story-voice-script.json --voice <voice_id> --dry-run
 //   node tools/voice/elevenlabs.mjs story-voice-script.json --voice <voice_id>
 //
 // Options:
 //   --model <id>     default eleven_multilingual_v2 (eleven_flash_v2_5 costs ~half the credits)
 //   --speed <x>      0.7–1.2, default 0.9 (slower suits trance pacing)
+//   --stability <x>  0–1, default 0.7 (higher = calmer, more even delivery)
+//   --context        send the neighbouring lines as previous_text / next_text so
+//                    each beat flows from the last (ElevenLabs' docs don't say if
+//                    this context is billed — compare credits before/after once)
+//   --audition <ids> voice one short line per voice into <out>/_audition/ to pick
+//                    a narrator (~150 credits per voice)
 //   --out <dir>      default voice-packs/<script name>
 //   --force          ignore the remaining-credit check
 //
@@ -57,24 +64,58 @@ async function api(path, init = {}) {
 
 if (has('list-voices')) {
   const { voices } = await api('/voices')
-  for (const v of voices) console.log(`${v.voice_id}  ${v.name}  (${v.category ?? ''})`)
+  for (const v of voices) {
+    const l = v.labels ?? {}
+    const tags = [l.gender, l.age, l.accent, l.description, l.use_case].filter(Boolean).join(', ')
+    console.log(`${v.voice_id}  ${v.name.padEnd(22)} ${tags}`)
+  }
   process.exit(0)
 }
 
 const scriptPath = args.find((a) => !a.startsWith('--') && a.endsWith('.json'))
 const voiceId = flag('voice')
-if (!scriptPath || !voiceId) {
+const audition = flag('audition')
+if (!scriptPath || !(voiceId || audition)) {
   console.error('Usage: node tools/voice/elevenlabs.mjs <voice-script.json> --voice <voice_id> [--dry-run]')
   process.exit(1)
 }
 
 const model = flag('model', 'eleven_multilingual_v2')
 const speed = Number(flag('speed', '0.9'))
+const stability = Number(flag('stability', '0.7'))
+const voiceSettings = { stability, similarity_boost: 0.75, style: 0, speed }
+
+async function speak(voice, text, context = {}) {
+  return api(`/text-to-speech/${voice}/with-timestamps?output_format=mp3_44100_128`, {
+    method: 'POST',
+    body: JSON.stringify({ text, model_id: model, voice_settings: voiceSettings, ...context }),
+  })
+}
 const out = flag('out', join('voice-packs', basename(scriptPath, '.json')))
 const script = JSON.parse(await readFile(scriptPath, 'utf8'))
 if (script.version !== 1 || !Array.isArray(script.beats)) throw new Error('Not a /story voice script (version 1).')
 
 await mkdir(out, { recursive: true })
+
+if (audition) {
+  // One representative line (the opening, cut at a sentence end) per voice.
+  const opening = script.beats.map((b) => b.text).join(' ')
+  const cut = opening.slice(0, 160)
+  const line = cut.length < opening.length ? cut.slice(0, Math.max(cut.lastIndexOf('. ') + 1, 60)) : cut
+  const ids = audition.split(',').map((v) => v.trim()).filter(Boolean)
+  await mkdir(join(out, '_audition'), { recursive: true })
+  console.log(`Auditioning ${ids.length} voice(s) on: "${line}" (~${line.length} credits each)`)
+  for (const id of ids) {
+    let name = id
+    try { name = (await api(`/voices/${id}`)).name } catch { /* keep id */ }
+    const res = await speak(id, line)
+    const file = join(out, '_audition', `${name.replace(/[^\w-]+/g, '_')}.mp3`)
+    await writeFile(file, Buffer.from(res.audio_base64, 'base64'))
+    console.log(`  ${file}`)
+  }
+  process.exit(0)
+}
+
 const exists = (p) => access(p).then(() => true, () => false)
 const todo = []
 for (const b of script.beats) if (!(await exists(join(out, `${b.id}.mp3`)))) todo.push(b)
@@ -95,14 +136,11 @@ if (cost > remaining && !has('force')) {
 
 for (const [i, b] of todo.entries()) {
   process.stdout.write(`[${i + 1}/${todo.length}] ${b.id} ${b.text.slice(0, 50)}… `)
-  const res = await api(`/text-to-speech/${voiceId}/with-timestamps?output_format=mp3_44100_128`, {
-    method: 'POST',
-    body: JSON.stringify({
-      text: b.text,
-      model_id: model,
-      voice_settings: { stability: 0.6, similarity_boost: 0.75, style: 0, speed },
-    }),
-  })
+  const at = script.beats.indexOf(b)
+  const context = has('context')
+    ? { previous_text: script.beats[at - 1]?.text, next_text: script.beats[at + 1]?.text }
+    : {}
+  const res = await speak(voiceId, b.text, context)
   await writeFile(join(out, `${b.id}.mp3`), Buffer.from(res.audio_base64, 'base64'))
   await writeFile(join(out, `${b.id}.json`), JSON.stringify({ text: b.text, alignment: res.alignment }))
   console.log('ok')
@@ -111,6 +149,6 @@ for (const [i, b] of todo.entries()) {
 let voiceName
 try { voiceName = (await api(`/voices/${voiceId}`)).name } catch { /* optional */ }
 await writeFile(join(out, 'pack.json'), JSON.stringify({
-  source: 'elevenlabs', model_id: model, voice_id: voiceId, voice_name: voiceName, created: new Date().toISOString(),
+  source: 'elevenlabs', model_id: model, voice_id: voiceId, voice_name: voiceName, voice_settings: voiceSettings, created: new Date().toISOString(),
 }, null, 2))
 console.log(`Done → ${out}  (load this folder in /story)`)

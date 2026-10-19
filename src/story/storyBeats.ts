@@ -17,7 +17,7 @@
 import type { Band, MotionType } from '@/composables/studioTypes'
 import { BANDS } from '@/composables/useStudioBinaural'
 import { chunkPhrases, splitWords, SENTENCE_HOLD, type Phrase } from './phrases'
-import { EFFECTS, STAGE_EFFECTS, keyWindow, guardFlashes, scheduleSubliminals, type Effect, type SubliminalFlash } from './effects'
+import { EFFECTS, STAGE_EFFECTS, GENTLE_EFFECT, keyWindow, guardFlashes, settleKeys, scheduleSubliminals, type Effect, type Look, type SubliminalFlash } from './effects'
 
 // ── Stages ───────────────────────────────────────────────────────
 
@@ -40,7 +40,8 @@ export const STAGES: Record<StoryStage, StageSpec> = {
   deepen:   { band: 'theta', pace: 1.25, breathMs: 3000, motion: 'waver', opacity: 0.8 },
   emerge:   { band: 'alpha', pace: 1.0,  breathMs: 1500, motion: 'drift', opacity: 0.95 },
   reinduce: { band: 'theta', pace: 1.35, breathMs: 3500, motion: 'waver', opacity: 0.75 },
-  final:    { band: 'delta', pace: 1.5,  breathMs: 6000, motion: 'pulse', opacity: 0.65 },
+  // Theta, not delta: a 2 Hz throb reads as pressure, not rest.
+  final:    { band: 'theta', pace: 1.5,  breathMs: 6000, motion: 'pulse', opacity: 0.65 },
   wake:     { band: 'alpha', pace: 1.0,  breathMs: 1500, motion: 'none',  opacity: 1 },
 }
 
@@ -176,6 +177,16 @@ export interface TimedPhrase {
   endMs: number
 }
 
+/** A reading line: one sentence (long ones split), with per-word timing. */
+export interface TimedLine {
+  text: string
+  startMs: number
+  endMs: number
+  words: { text: string; startMs: number }[]
+  /** Key-phrase character ranges within `text`, for highlighting. */
+  keySpans: [number, number][]
+}
+
 export interface TimedKey {
   text: string
   effect: Effect
@@ -213,6 +224,7 @@ export interface TimedBeat extends StoryBeat {
   /** True when key/caption timing comes from real character timestamps. */
   aligned: boolean
   phrases: TimedPhrase[]
+  lines: TimedLine[]
 }
 
 export interface Timeline {
@@ -222,6 +234,7 @@ export interface Timeline {
   beats: TimedBeat[]
   keys: TimedKey[]
   subliminals: SubliminalFlash[]
+  look: Look
 }
 
 export interface TimelineOptions {
@@ -234,7 +247,12 @@ export interface TimelineOptions {
   leadInMs?: number
   /** Binaural-only rest after the last beat. */
   tailMs?: number
+  /** 'gentle' (default): reading line + soft key phrases, one at a time. 'bold': the full effect set. */
+  look?: Look
 }
+
+/** Split a long sentence into lines at a phrase boundary past this many words. */
+const LINE_MAX_WORDS = 12
 
 /** Last phrase of a beat lingers this far into the breath. */
 const LINGER_MS = 1200
@@ -290,6 +308,7 @@ export function buildTimeline(beats: StoryBeat[], opts: TimelineOptions = {}): T
   const leadInMs = opts.leadInMs ?? 3000
   const tailMs = opts.tailMs ?? 5000
   const msPerWord = 60000 / wpm
+  const look = opts.look ?? 'gentle'
 
   let t = leadInMs
   let keyCount = 0
@@ -303,7 +322,7 @@ export function buildTimeline(beats: StoryBeat[], opts: TimelineOptions = {}): T
       t += beat.pauseMs
       return {
         ...beat, index, startMs, bodyEndMs: t, endMs: t,
-        beatHz: band.beatHz, carrierHz: band.carrierHz, voiced: false, aligned: false, phrases: [],
+        beatHz: band.beatHz, carrierHz: band.carrierHz, voiced: false, aligned: false, phrases: [], lines: [],
       }
     }
 
@@ -340,9 +359,41 @@ export function buildTimeline(beats: StoryBeat[], opts: TimelineOptions = {}): T
       return ph
     })
 
+    // Reading lines: whole sentences, split at a phrase boundary when long.
+    const lines: TimedLine[] = []
+    let lineStart = 0
+    let lineWords = 0
+    charPos = 0
+    phrases.forEach((p, i) => {
+      lineWords += p.endIdx - p.startIdx + 1
+      charPos += p.text.length + 1
+      const last = i === phrases.length - 1
+      if (!(p.isPausePoint || lineWords >= LINE_MAX_WORDS || last)) return
+      const end = charPos - 1
+      const text = beat.text.slice(lineStart, end)
+      const words: TimedLine['words'] = []
+      let w = lineStart
+      for (const word of text.split(' ')) {
+        words.push({ text: word, startMs: startMs + at(w) })
+        w += word.length + 1
+      }
+      lines.push({
+        text,
+        startMs: startMs + at(lineStart),
+        endMs: last ? startMs + bodyMs + Math.min(LINGER_MS, spec.breathMs) : startMs + at(end + 1),
+        words,
+        keySpans: beat.keys
+          .filter((k) => k.charStart >= lineStart && k.charEnd <= end)
+          .map((k) => [k.charStart - lineStart, k.charEnd - lineStart]),
+      })
+      lineStart = end + 1
+      lineWords = 0
+    })
+
     for (const k of beat.keys) {
       const rotation = STAGE_EFFECTS[beat.stage]
-      const effect = k.effect ?? rotation[keyCount % rotation.length]
+      const picked = k.effect ?? rotation[keyCount % rotation.length]
+      const effect = look === 'gentle' ? GENTLE_EFFECT[picked] : picked
       const spokenStartMs = startMs + at(k.charStart)
       const spokenEndMs = startMs + at(k.charEnd - 1, 'end')
       keys.push({ text: k.text, effect, spokenStartMs, spokenEndMs, ...keyWindow(effect, spokenStartMs, spokenEndMs), seed: keyCount + 1, beat: index })
@@ -353,15 +404,16 @@ export function buildTimeline(beats: StoryBeat[], opts: TimelineOptions = {}): T
     t = bodyEndMs + spec.breathMs
     return {
       ...beat, index, startMs, bodyEndMs, endMs: t,
-      beatHz: band.beatHz, carrierHz: band.carrierHz, voiced, aligned: !!al, phrases: timedPhrases,
+      beatHz: band.beatHz, carrierHz: band.carrierHz, voiced, aligned: !!al, phrases: timedPhrases, lines,
     }
   })
 
-  const safeKeys = guardFlashes(keys)
+  const safeKeys = look === 'gentle' ? settleKeys(keys) : guardFlashes(keys)
   return {
     durationMs: t + tailMs, leadInMs, tailMs, beats: timed,
     keys: safeKeys,
     subliminals: scheduleSubliminals(timed, safeKeys),
+    look,
   }
 }
 
@@ -428,6 +480,18 @@ export function frameAt(tl: Timeline, tMs: number): TimelineFrame {
   const fade = Math.min(PHRASE_FADE_MS, (ph.endMs - ph.startMs) / 2)
   const env = Math.min(1, (tMs - ph.startMs) / fade, (ph.endMs - tMs) / fade)
   return { beat, text: ph.text, alpha: Math.max(0, env) * STAGES[beat.stage].opacity, beatHz, carrierHz }
+}
+
+/** The reading line on screen at tMs, if any. */
+export function lineAt(tl: Timeline, tMs: number): TimedLine | null {
+  const i = beatIndexAt(tl, tMs)
+  if (i < 0) return null
+  // A beat's last line lingers into the next beat's lead, so check the previous beat too.
+  for (const b of [tl.beats[i], tl.beats[i - 1]]) {
+    const line = b?.lines.find((l) => tMs >= l.startMs && tMs < l.endMs)
+    if (line) return line
+  }
+  return null
 }
 
 /** "m:ss" for beat lists. */
