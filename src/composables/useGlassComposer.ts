@@ -67,7 +67,7 @@ const IDENTITY_TRANSFORM: LayerTransform = { scale: 1, txFrac: 0, tyFrac: 0, alp
 // ── Deterministic PRNG (for subliminal shuffle + shake jitter) ─────
 
 /** mulberry32 — small deterministic PRNG so preview and export agree. */
-function mulberry32(seed: number): () => number {
+export function mulberry32(seed: number): () => number {
   let a = seed >>> 0
   return function () {
     a |= 0
