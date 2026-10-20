@@ -23,7 +23,7 @@ vi.mock('@/composables/useAdminStore', () => ({
     eventStats: ref([
       { event: 'checkin_completed', total: 4, users: 1, last_7d: 2, last_at: new Date().toISOString() },
     ]),
-    validEvents: ref(['checkin_started', 'checkin_completed', 'portrait_viewed']),
+    validEvents: ref(['checkin_started', 'checkin_completed', 'portrait_viewed', 'portrait_generated', 'streak_active']),
     errors,
   }),
 }))
@@ -38,8 +38,8 @@ describe('AdminSections', () => {
     // practice_started is emitted by the check-in section but absent from validEvents here
     expect(w.text()).toContain('rejected by the server')
     expect(w.text()).toContain('practice_started')
-    // portrait_viewed is allowed but no section emits it
-    expect(w.text()).toContain('portrait_viewed')
+    // streak_active is allowed but no section emits it
+    expect(w.text()).toContain('streak_active')
   })
 
   it('shows a panel error without hiding the rest', () => {
