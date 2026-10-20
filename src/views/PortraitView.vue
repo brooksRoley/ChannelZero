@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useAuthStore } from '@/composables/useAuthStore'
+import { useAnalytics } from '@/composables/useAnalytics'
 import PortraitSection from '@/components/portrait/PortraitSection.vue'
 
 interface PortraitSectionData {
@@ -27,6 +28,7 @@ interface PortraitStatus {
 }
 
 const { apiFetch } = useAuthStore()
+const { logEvent } = useAnalytics()
 
 const loading = ref(true)
 const generating = ref(false)
@@ -72,6 +74,7 @@ async function fetchStatus() {
   error.value = ''
   try {
     status.value = await apiFetch<PortraitStatus>('/api/portrait')
+    if (status.value?.portrait) logEvent('portrait_viewed', { status: status.value.status })
   } catch (e: any) {
     error.value = e.message || 'Could not reach the portrait engine.'
   } finally {
@@ -100,6 +103,7 @@ async function generate() {
       connected_providers: status.value?.connected_providers ?? res.source_providers,
       llm_available: true,
     }
+    logEvent('portrait_generated', { providers: res.source_providers.length })
   } catch (e: any) {
     // A failed generation never clears an existing portrait
     error.value = e.message || 'Portrait generation failed — try again.'
