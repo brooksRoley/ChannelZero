@@ -15,21 +15,17 @@ from __future__ import annotations
 
 import json
 import logging
-import time
-from urllib.parse import urlencode
 from uuid import UUID
 
-import secrets
 
 import httpx
-import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 
 from ..auth.deps import get_current_user_id
 from ..config import get_settings
 from ..db import get_conn
-from ..oauth_base import store_provider_data
+from ..oauth_base import OAuthProvider, authorize_url, finish_callback, store_provider_data
 from ..llm.chat import chat_completion
 
 logger = logging.getLogger(__name__)
@@ -43,42 +39,13 @@ _YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
 _SCOPES = "https://www.googleapis.com/auth/youtube.readonly"
 
 
-# ── State helpers ─────────────────────────────────────────────────────────────
-
-def _make_state(user_id: str) -> str:
-    nonce = secrets.token_urlsafe(16)
-    payload = {"sub": user_id, "nonce": nonce, "exp": int(time.time()) + 600}
-    return jwt.encode(payload, get_settings().jwt_secret, algorithm="HS256")
-
-
-async def _verify_state(state: str) -> str:
-    """Decode, verify, and consume the state JWT (one-time use)."""
-    try:
-        payload = jwt.decode(state, get_settings().jwt_secret, algorithms=["HS256"])
-    except jwt.PyJWTError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state") from exc
-
-    nonce = payload.get("nonce")
-    if not nonce:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state — missing nonce")
-
-    # Consume the nonce — INSERT fails on replay due to UNIQUE constraint
-    async with get_conn() as conn:
-        try:
-            await conn.execute(
-                """
-                INSERT INTO _oauth_nonces (nonce, consumed_at)
-                VALUES ($1, now())
-                """,
-                nonce,
-            )
-        except Exception:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="OAuth state already consumed — possible replay attack",
-            )
-
-    return payload["sub"]
+YOUTUBE = OAuthProvider(
+    name="youtube", label="YouTube",
+    auth_url=_GOOGLE_AUTH_URL, token_url=_GOOGLE_TOKEN_URL, scopes=_SCOPES,
+    client_id=lambda s: s.google_client_id, client_secret=lambda s: s.google_client_secret,
+    redirect_uri=lambda s: s.youtube_redirect_uri,
+    authorize_params={"access_type": "offline", "prompt": "consent"},
+)
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -90,20 +57,7 @@ async def youtube_connect(user_id: UUID = Depends(get_current_user_id)):
     Frontend fetches this endpoint with Authorization: Bearer header and then
     redirects to the returned auth_url — no JWT in the URL.
     """
-    settings = get_settings()
-    if not settings.google_client_id:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Google OAuth not configured")
-
-    params = {
-        "client_id": settings.google_client_id,
-        "redirect_uri": settings.youtube_redirect_uri,
-        "response_type": "code",
-        "scope": _SCOPES,
-        "state": _make_state(str(user_id)),
-        "access_type": "offline",
-        "prompt": "consent",
-    }
-    return {"auth_url": f"{_GOOGLE_AUTH_URL}?{urlencode(params)}"}
+    return {"auth_url": authorize_url(YOUTUBE, str(user_id))}
 
 
 @router.get("/callback")
@@ -112,34 +66,12 @@ async def youtube_callback(code: str, state: str):
     Google redirects here (via frontend) after user authorizes.
     Exchanges code for tokens, fetches channel + subscriptions + liked videos, stores everything.
     """
-    user_id = await _verify_state(state)
+    grant = await finish_callback(YOUTUBE, code, state)
+    user_id, access_token = grant.user_id, grant.access_token
     settings = get_settings()
 
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
-            # 1. Exchange authorization code for access + refresh tokens
-            token_resp = await client.post(
-                _GOOGLE_TOKEN_URL,
-                data={
-                    "client_id": settings.google_client_id,
-                    "client_secret": settings.google_client_secret,
-                    "code": code,
-                    "grant_type": "authorization_code",
-                    "redirect_uri": settings.youtube_redirect_uri,
-                },
-            )
-            if token_resp.status_code != 200:
-                logger.error("YouTube token exchange failed (%d): %s", token_resp.status_code, token_resp.text)
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"YouTube token exchange failed: {token_resp.text}",
-                )
-            tokens = token_resp.json()
-
-            access_token = tokens["access_token"]
-            refresh_token = tokens.get("refresh_token", "")
-            expires_in = tokens.get("expires_in", 3600)
-            expires_at = int(time.time()) + expires_in
 
             headers = {"Authorization": f"Bearer {access_token}"}
 
@@ -195,13 +127,6 @@ async def youtube_callback(code: str, state: str):
 
         # 5. Distill the attention profile
         youtube_profile = _distill_profile(channel_data, subs_data, liked_count)
-
-        # 6. Store tokens using shared helper
-        from ..oauth_base import store_oauth_tokens
-        await store_oauth_tokens(
-            user_id, "youtube", access_token, refresh_token,
-            int(time.time()) + expires_in, _SCOPES,
-        )
 
         # 7. Store YouTube profile (upserts into vibe_vectors).
         await store_provider_data(user_id, "youtube_data", youtube_profile)

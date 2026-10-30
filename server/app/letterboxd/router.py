@@ -26,15 +26,15 @@ import uuid as _uuid
 from urllib.parse import urlencode
 from uuid import UUID
 
-import secrets
 
 import httpx
-import jwt
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 
 from ..auth.deps import get_current_user_id
 from ..oauth_base import store_provider_data
+# One shared state implementation (nonce + replay check); the old names stay for callers and tests.
+from ..oauth_base import make_oauth_state as _make_state, verify_oauth_state as _verify_state
 from ..config import get_settings
 from ..db import get_conn
 from ..llm.chat import chat_completion
@@ -44,38 +44,7 @@ router = APIRouter()
 _LB_API_BASE = "https://api.letterboxd.com/api/v0"
 
 
-# ── State helpers ─────────────────────────────────────────────────────────────
-
-def _make_state(user_id: str) -> str:
-    nonce = secrets.token_urlsafe(16)
-    payload = {"sub": user_id, "nonce": nonce, "exp": int(time.time()) + 600}
-    return jwt.encode(payload, get_settings().jwt_secret, algorithm="HS256")
-
-
-async def _verify_state(state: str) -> str:
-    try:
-        payload = jwt.decode(state, get_settings().jwt_secret, algorithms=["HS256"])
-    except jwt.PyJWTError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid state") from exc
-
-    nonce = payload.get("nonce")
-    if not nonce:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid state — missing nonce")
-
-    async with get_conn() as conn:
-        try:
-            await conn.execute(
-                "INSERT INTO _oauth_nonces (nonce, consumed_at) VALUES ($1, now())",
-                nonce,
-            )
-        except Exception:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="State already consumed — possible replay attack",
-            )
-
-    return payload["sub"]
-
+# ── Request signing ───────────────────────────────────────────────────────────
 
 def _sign_request(method: str, url: str, body: str = "") -> dict:
     """Generate HMAC-SHA256 signature headers for Letterboxd API."""

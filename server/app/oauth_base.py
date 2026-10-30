@@ -3,20 +3,31 @@
 Handles:
   - State JWT creation / verification with one-time nonce
   - Authorization URL construction
-  - Code-for-token exchange (standard and Basic Auth variants)
+  - Code-for-token exchange (body or Basic auth, PKCE) via finish_callback
   - Encrypted token storage (upsert into oauth_tokens)
   - Encrypted token retrieval
 
 Provider-specific logic (profile fetching, data distillation, re-embedding)
 stays in each router — this module only covers the OAuth plumbing.
+
+A connector describes itself with an `OAuthProvider` and calls two functions:
+`authorize_url(provider, user_id)` from /connect and
+`finish_callback(provider, code, state)` from /callback, which verifies the
+state, exchanges the code, stores the encrypted tokens with the scope the
+user actually granted, and returns a `Grant`. Only fetching and distilling the
+provider's data is left to the router (docs/CONNECTORS.md).
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import logging
 import secrets
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Callable, Literal
 from urllib.parse import urlencode
 from uuid import UUID
 
@@ -24,7 +35,7 @@ import httpx
 import jwt
 from fastapi import HTTPException, status
 
-from .config import get_settings
+from .config import Settings, get_settings
 from .db import get_conn
 from .llm.encryption import decrypt_api_key, encrypt_api_key
 
@@ -35,15 +46,29 @@ logger = logging.getLogger(__name__)
 # Identical across every connector — JWT with a one-time nonce.
 
 
-def make_oauth_state(user_id: str) -> str:
-    """Create a signed, time-limited, one-use state parameter."""
+def make_oauth_state(user_id: str, code_verifier: str | None = None) -> str:
+    """Create a signed, time-limited, one-use state parameter.
+
+    A PKCE verifier rides along *encrypted*: the state is signed, not secret,
+    and it passes through the browser and the provider. A readable verifier
+    would let whoever sees the redirect redeem an intercepted code.
+    """
     nonce = secrets.token_urlsafe(16)
-    payload = {"sub": user_id, "nonce": nonce, "exp": int(time.time()) + 600}
+    payload: dict = {"sub": user_id, "nonce": nonce, "exp": int(time.time()) + 600}
+    if code_verifier:
+        enc, iv = encrypt_api_key(code_verifier)
+        payload["cv"] = base64.urlsafe_b64encode(enc).decode()
+        payload["cvn"] = base64.urlsafe_b64encode(iv).decode()
     return jwt.encode(payload, get_settings().jwt_secret, algorithm="HS256")
 
 
 async def verify_oauth_state(state: str) -> str:
     """Decode, verify, and consume the state JWT. Returns user_id."""
+    return (await _consume_state(state))["sub"]
+
+
+async def _consume_state(state: str) -> dict:
+    """Verify and consume the state JWT; returns its payload."""
     try:
         payload = jwt.decode(state, get_settings().jwt_secret, algorithms=["HS256"])
     except jwt.PyJWTError as exc:
@@ -77,7 +102,18 @@ async def verify_oauth_state(state: str) -> str:
         except Exception:
             pass  # best-effort; never block the auth flow
 
-    return payload["sub"]
+    return payload
+
+
+def _state_verifier(payload: dict) -> str | None:
+    if not payload.get("cv"):
+        return None
+    return decrypt_api_key(base64.urlsafe_b64decode(payload["cv"]), base64.urlsafe_b64decode(payload["cvn"]))
+
+
+def pkce_challenge(verifier: str) -> str:
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
 # ── Token helpers ─────────────────────────────────────────────────────────────────────────
@@ -133,77 +169,6 @@ def build_authorize_url(
     if extra_params:
         params.update(extra_params)
     return f"{auth_url}?{urlencode(params)}"
-
-
-async def exchange_code_for_tokens(
-    token_url: str,
-    *,
-    code: str,
-    redirect_uri: str,
-    client_id: str,
-    client_secret: str,
-    extra_data: dict | None = None,
-    use_basic_auth: bool = False,
-    extra_headers: dict | None = None,
-) -> dict:
-    """Exchange an authorization code for tokens.
-
-    Supports both standard POST body auth and HTTP Basic Auth.
-    Returns the parsed JSON response from the token endpoint.
-    """
-    data: dict = {
-        "grant_type": "authorization_code",
-        "code": code,
-    }
-    if redirect_uri:
-        data["redirect_uri"] = redirect_uri
-    if extra_data:
-        data.update(extra_data)
-
-    headers = {}
-    auth = None
-
-    if use_basic_auth:
-        import base64
-        credentials = base64.b64encode(
-            f"{client_id}:{client_secret}".encode()
-        ).decode()
-        headers["Authorization"] = f"Basic {credentials}"
-        headers["Content-Type"] = "application/x-www-form-urlencoded"
-    else:
-        # Some providers want client_id/secret in the body
-        data["client_id"] = client_id
-        data["client_secret"] = client_secret
-
-    if extra_headers:
-        headers.update(extra_headers)
-
-    # GitHub specifically needs Accept: application/json
-    if "Accept" not in headers and "accept" not in headers:
-        pass  # most providers return JSON by default
-
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        if use_basic_auth:
-            resp = await client.post(token_url, data=data, headers=headers)
-        else:
-            resp = await client.post(
-                token_url,
-                data=data,
-                headers=headers if headers else None,
-                auth=(client_id, client_secret)
-                if not any(k in data for k in ("client_id",))
-                else None,
-            )
-
-    if resp.status_code != 200:
-        # The provider's body goes to the log, never to the client.
-        logger.warning("Token exchange failed (%s): %s", resp.status_code, resp.text[:300])
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Token exchange failed",
-        )
-
-    return resp.json()
 
 
 async def store_oauth_tokens(
@@ -377,3 +342,133 @@ async def store_provider_data(
             """,
             UUID(user_id), json.dumps(data),
         )
+
+
+# ── Provider spec + the shared flow ───────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class OAuthProvider:
+    """Everything the OAuth dance needs to know about one provider."""
+
+    name: str                                   # oauth_tokens.provider
+    label: str                                  # for messages: "Reddit"
+    auth_url: str
+    token_url: str
+    scopes: str
+    client_id: Callable[[Settings], str]
+    client_secret: Callable[[Settings], str]
+    redirect_uri: Callable[[Settings], str]
+    client_id_param: str = "client_id"          # TikTok calls it client_key
+    token_auth: Literal["body", "basic"] = "body"
+    authorize_params: dict[str, str] = field(default_factory=dict)  # access_type=offline …
+    token_headers: dict[str, str] = field(default_factory=dict)     # User-Agent, Accept …
+    pkce: bool = False
+    default_expires_in: int | None = 3600     # None: tokens that never expire (GitHub OAuth apps)
+
+
+@dataclass(frozen=True)
+class Grant:
+    user_id: str
+    access_token: str
+    refresh_token: str | None
+    expires_at: int | None
+    scope: str                                  # what the user granted
+    raw: dict                                   # the token response (open_id, user_id …)
+
+
+def _http() -> httpx.AsyncClient:
+    """One place to build the client, so tests can hand it a MockTransport."""
+    return httpx.AsyncClient(timeout=20.0)
+
+
+def require_configured(provider: OAuthProvider) -> None:
+    """503 {code: not_configured} when the server has no client id for it.
+
+    Call it before spending anything single-use, like a connect token.
+    """
+    if not provider.client_id(get_settings()):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "not_configured", "message": f"{provider.label} isn't set up on this server."},
+        )
+
+
+def authorize_url(provider: OAuthProvider, user_id: str) -> str:
+    """The provider's consent URL, with a one-use state (and PKCE when asked)."""
+    require_configured(provider)
+    settings = get_settings()
+    params = {
+        provider.client_id_param: provider.client_id(settings),
+        "response_type": "code",
+        "redirect_uri": provider.redirect_uri(settings),
+        "scope": provider.scopes,
+        **provider.authorize_params,
+    }
+    verifier = secrets.token_urlsafe(48) if provider.pkce else None
+    params["state"] = make_oauth_state(user_id, verifier)
+    if verifier:
+        params["code_challenge"] = pkce_challenge(verifier)
+        params["code_challenge_method"] = "S256"
+    return f"{provider.auth_url}?{urlencode(params)}"
+
+
+async def finish_callback(provider: OAuthProvider, code: str, state: str, *, store: bool = True) -> Grant:
+    """Verify the state, exchange the code and store the tokens.
+
+    Never returns the provider's error body to the client: it can carry
+    request details, and the user can't act on it anyway. It goes to the log.
+    """
+    payload = await _consume_state(state)
+    settings = get_settings()
+    data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": provider.redirect_uri(settings),
+    }
+    headers = {"Accept": "application/json", **provider.token_headers}
+    if provider.token_auth == "basic":
+        creds = f"{provider.client_id(settings)}:{provider.client_secret(settings)}".encode()
+        headers["Authorization"] = f"Basic {base64.b64encode(creds).decode()}"
+    else:
+        data[provider.client_id_param] = provider.client_id(settings)
+        data["client_secret"] = provider.client_secret(settings)
+    verifier = _state_verifier(payload)
+    if verifier:
+        data["code_verifier"] = verifier
+        if provider.token_auth == "basic":
+            data["client_id"] = provider.client_id(settings)
+
+    async with _http() as client:
+        resp = await client.post(provider.token_url, data=data, headers=headers)
+    body: dict = {}
+    if resp.status_code == 200:
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {}
+    if not body.get("access_token"):
+        logger.warning("%s token exchange failed (%s): %s", provider.name, resp.status_code, resp.text[:300])
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "token_exchange_failed",
+                    "message": f"{provider.label} didn't accept the sign-in. Try connecting again."},
+        )
+
+    expires_in = body.get("expires_in", provider.default_expires_in)
+    expires_at = int(time.time()) + int(expires_in) if expires_in is not None else None
+    granted = body.get("scope")
+    if isinstance(granted, list):
+        granted = " ".join(granted)
+    grant = Grant(
+        user_id=payload["sub"],
+        access_token=body["access_token"],
+        refresh_token=body.get("refresh_token") or None,
+        expires_at=expires_at,
+        scope=(granted or provider.scopes).replace(",", " "),
+        raw=body,
+    )
+    if store:
+        await store_oauth_tokens(grant.user_id, provider.name, grant.access_token,
+                                 grant.refresh_token, grant.expires_at, grant.scope)
+    return grant

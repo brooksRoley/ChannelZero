@@ -15,28 +15,27 @@ Flow:
 from __future__ import annotations
 
 import json
+import logging
 import time
 from collections import Counter
 from urllib.parse import urlencode
 from uuid import UUID
 
-import secrets
 
 from ..oracle.trigger import maybe_trigger_synthesis
 
 import httpx
-import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 
 from ..auth.deps import get_current_user_id
 from ..config import get_settings
-from ..oauth_base import store_provider_data
+from ..oauth_base import make_oauth_state, store_oauth_tokens, store_provider_data, verify_oauth_state
 from ..db import get_conn
-from ..llm.encryption import encrypt_api_key
 from ..llm.chat import chat_completion
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 _FB_AUTH_URL = "https://www.facebook.com/v21.0/dialog/oauth"
 _FB_TOKEN_URL = "https://graph.facebook.com/v21.0/oauth/access_token"
@@ -44,42 +43,12 @@ _IG_API_BASE = "https://graph.instagram.com/v21.0"
 _SCOPES = "instagram_basic,instagram_manage_insights"
 
 
-# ── State helpers ─────────────────────────────────────────────────────────────
-
-def _make_state(user_id: str) -> str:
-    nonce = secrets.token_urlsafe(16)
-    payload = {"sub": user_id, "nonce": nonce, "exp": int(time.time()) + 600}
-    return jwt.encode(payload, get_settings().jwt_secret, algorithm="HS256")
-
-
-async def _verify_state(state: str) -> str:
-    """Decode, verify, and consume the state JWT (one-time use)."""
-    try:
-        payload = jwt.decode(state, get_settings().jwt_secret, algorithms=["HS256"])
-    except jwt.PyJWTError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state") from exc
-
-    nonce = payload.get("nonce")
-    if not nonce:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state — missing nonce")
-
-    # Consume the nonce — INSERT fails on replay due to UNIQUE constraint
-    async with get_conn() as conn:
-        try:
-            await conn.execute(
-                """
-                INSERT INTO _oauth_nonces (nonce, consumed_at)
-                VALUES ($1, now())
-                """,
-                nonce,
-            )
-        except Exception:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="OAuth state already consumed — possible replay attack",
-            )
-
-    return payload["sub"]
+# Instagram doesn't fit OAuthProvider: a GET exchange on Facebook, then a
+# second exchange for a long-lived token on graph.instagram.com. It shares the
+# state and storage helpers. NOTE: ig_exchange_token belongs to the Instagram
+# Basic Display API, which Meta shut down in Dec 2024; verify before relying on it.
+_EXCHANGE_FAILED = {"code": "token_exchange_failed",
+                    "message": "Instagram didn't accept the sign-in. Try connecting again."}
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -99,7 +68,7 @@ async def instagram_connect(user_id: UUID = Depends(get_current_user_id)):
         "response_type": "code",
         "redirect_uri": settings.instagram_redirect_uri,
         "scope": _SCOPES,
-        "state": _make_state(str(user_id)),
+        "state": make_oauth_state(str(user_id)),
     }
     return {"auth_url": f"{_FB_AUTH_URL}?{urlencode(params)}"}
 
@@ -110,7 +79,7 @@ async def instagram_callback(code: str, state: str):
     Facebook redirects here (via frontend) after user authorizes.
     Exchanges code for tokens, fetches profile + media, stores everything.
     """
-    user_id = await _verify_state(state)
+    user_id = await verify_oauth_state(state)
     settings = get_settings()
 
     async with httpx.AsyncClient(timeout=20.0) as client:
@@ -125,10 +94,8 @@ async def instagram_callback(code: str, state: str):
             },
         )
         if token_resp.status_code != 200:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Instagram token exchange failed: {token_resp.text}",
-            )
+            logger.warning("instagram token exchange failed (%s): %s", token_resp.status_code, token_resp.text[:300])
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_EXCHANGE_FAILED)
         short_lived_token = token_resp.json().get("access_token", "")
 
         # 2. Exchange short-lived token for long-lived Instagram token
@@ -141,10 +108,8 @@ async def instagram_callback(code: str, state: str):
             },
         )
         if long_resp.status_code != 200:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Instagram long-lived token exchange failed: {long_resp.text}",
-            )
+            logger.warning("instagram long-lived exchange failed (%s): %s", long_resp.status_code, long_resp.text[:300])
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_EXCHANGE_FAILED)
         long_data = long_resp.json()
         access_token = long_data.get("access_token", short_lived_token)
         expires_in = long_data.get("expires_in", 5184000)  # default 60 days
@@ -177,34 +142,8 @@ async def instagram_callback(code: str, state: str):
     # 5. Distill the aesthetic profile
     instagram_profile = _distill_profile(profile_data, media_data)
 
-    # 6. Encrypt and store tokens
-    enc_access, access_nonce = encrypt_api_key(access_token)
-
-    from datetime import datetime, timezone
-    expires_at = int(time.time()) + expires_in
-    expires_dt = datetime.fromtimestamp(expires_at, tz=timezone.utc)
-
-    async with get_conn() as conn:
-        await conn.execute(
-            """
-            INSERT INTO oauth_tokens
-                (user_id, provider, encrypted_access_token, access_nonce,
-                 encrypted_refresh_token, refresh_nonce, expires_at, scope)
-            VALUES ($1, 'instagram', $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (user_id, provider) DO UPDATE SET
-                encrypted_access_token  = EXCLUDED.encrypted_access_token,
-                access_nonce            = EXCLUDED.access_nonce,
-                encrypted_refresh_token = EXCLUDED.encrypted_refresh_token,
-                refresh_nonce           = EXCLUDED.refresh_nonce,
-                expires_at              = EXCLUDED.expires_at,
-                scope                   = EXCLUDED.scope,
-                updated_at              = now()
-            """,
-            UUID(user_id),
-            enc_access, access_nonce,
-            None, None,
-            expires_dt, _SCOPES,
-        )
+    # 6. Store tokens (no refresh token: Instagram's long-lived token is refreshed by its own endpoint)
+    await store_oauth_tokens(user_id, "instagram", access_token, None, int(time.time()) + expires_in, _SCOPES)
 
     # 7. Store Instagram profile (upserts into vibe_vectors).
     await store_provider_data(user_id, "instagram_data", instagram_profile)

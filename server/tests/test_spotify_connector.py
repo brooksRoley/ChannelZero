@@ -243,11 +243,11 @@ class TestSpotifyConnectEndpoint:
     def test_503_when_spotify_client_id_not_configured(self):
         """Missing SPOTIFY_CLIENT_ID → 503 before any token validation or DB call."""
         app = _make_app()
-        with patch("app.spotify.router.get_settings") as mock_settings:
+        with patch("app.oauth_base.get_settings") as mock_settings:
             mock_settings.return_value.spotify_client_id = None
             resp = TestClient(app).get("/api/spotify/connect", params={"ct": "dummy-connect-token"})
         assert resp.status_code == 503
-        assert "not configured" in resp.json()["detail"].lower()
+        assert resp.json()["detail"]["code"] == "not_configured"
 
 
 # ── _ingest_spotify_data helper ───────────────────────────────────────────────

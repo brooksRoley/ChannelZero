@@ -183,7 +183,7 @@ class TestGcalConnectEndpoint:
     def test_503_when_google_client_id_unset(self):
         mock_settings = MagicMock()
         mock_settings.google_client_id = ""
-        with patch("app.gcal.router.get_settings", return_value=mock_settings):
+        with patch("app.oauth_base.get_settings", return_value=mock_settings):
             r = TestClient(_make_app(), raise_server_exceptions=False).get(
                 "/api/gcal/connect", params={"ct": "fake_token"}
             )

@@ -91,7 +91,9 @@ async function initiateXAuth() {
     const data = await response.json()
 
     if (!response.ok) {
-      connectError.value = data.detail || `Error ${response.status}`
+      // Connectors answer {detail: {code, message}}; older routes, a string.
+      const d = data.detail
+      connectError.value = (d && typeof d === 'object' ? d.message : d) || `Error ${response.status}`
       return
     }
 

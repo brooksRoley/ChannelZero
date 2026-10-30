@@ -265,18 +265,18 @@ class TestYoutubeConnectEndpoint:
     def test_503_when_google_client_id_not_configured(self):
         """Missing GOOGLE_CLIENT_ID → 503 before any token exchange or DB call."""
         app = _make_app()
-        with patch("app.youtube.router.get_settings") as mock_settings:
+        with patch("app.oauth_base.get_settings") as mock_settings:
             mock_settings.return_value.google_client_id = None
             resp = TestClient(app).get("/api/youtube/connect")
         assert resp.status_code == 503
-        assert "not configured" in resp.json()["detail"].lower()
+        assert resp.json()["detail"]["code"] == "not_configured"
 
     def test_connect_returns_auth_url_when_configured(self):
         """Configured client id → returns a Google auth URL for the frontend."""
         app = _make_app()
         with (
-            patch("app.youtube.router.get_settings") as mock_settings,
-            patch("app.youtube.router._make_state", return_value="state-token"),
+            patch("app.oauth_base.get_settings") as mock_settings,
+            patch("app.oauth_base.make_oauth_state", return_value="state-token"),
         ):
             s = mock_settings.return_value
             s.google_client_id = "client-123"

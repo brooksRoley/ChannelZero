@@ -32,12 +32,13 @@ from ..db import get_conn
 from ..vector.service import upsert_user_vector
 from ..llm.chat import chat_completion
 from ..oauth_base import (
-    build_authorize_url,
-    make_oauth_state,
+    OAuthProvider,
+    authorize_url,
+    finish_callback,
+    require_configured,
     store_oauth_tokens,
     store_provider_data,
     validate_connect_token,
-    verify_oauth_state,
 )
 
 router = APIRouter()
@@ -46,6 +47,14 @@ _SPOTIFY_AUTH_URL  = "https://accounts.spotify.com/authorize"
 _SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
 _SPOTIFY_API_BASE = "https://api.spotify.com/v1"
 _SCOPES = "user-top-read user-read-recently-played"
+
+SPOTIFY = OAuthProvider(
+    name="spotify", label="Spotify",
+    auth_url=_SPOTIFY_AUTH_URL, token_url=_SPOTIFY_TOKEN_URL, scopes=_SCOPES,
+    client_id=lambda s: s.spotify_client_id, client_secret=lambda s: s.spotify_client_secret,
+    redirect_uri=lambda s: s.spotify_redirect_uri,
+    token_auth="basic", authorize_params={"show_dialog": "false"},
+)
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -116,9 +125,9 @@ async def spotify_sync(user_id: UUID = Depends(get_current_user_id)):
         raise
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Spotify API timed out — try again")
-    except Exception as exc:
+    except Exception:
         logger.exception("Spotify sync failed for user %s", user_id)
-        raise HTTPException(status_code=502, detail=f"Spotify sync error: {exc}")
+        raise HTTPException(status_code=502, detail="Spotify sync failed — try again, or reconnect on /calibrate")
 
     # Re-trigger Oracle synthesis (non-blocking)
     try:
@@ -136,21 +145,9 @@ async def spotify_connect(ct: str = Query(..., description="Short-lived connect 
     Redirect the authenticated user to Spotify's authorization page.
     Accepts a short-lived connect token (?ct=) minted by POST /api/auth/connect-token.
     """
-    settings = get_settings()
-    if not settings.spotify_client_id:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Spotify not configured")
-
+    require_configured(SPOTIFY)  # before the one-use connect token is spent
     payload = await validate_connect_token(ct)
-
-    url = build_authorize_url(
-        _SPOTIFY_AUTH_URL,
-        client_id=settings.spotify_client_id,
-        redirect_uri=settings.spotify_redirect_uri,
-        scope=_SCOPES,
-        state=make_oauth_state(payload["sub"]),
-        extra_params={"show_dialog": "false"},
-    )
-    resp = RedirectResponse(url)
+    resp = RedirectResponse(authorize_url(SPOTIFY, payload["sub"]))
     # Prevent the ?ct= token from leaking to Spotify via the Referer header.
     resp.headers["Referrer-Policy"] = "no-referrer"
     return resp
@@ -162,38 +159,16 @@ async def spotify_callback(code: str, state: str):
     Spotify redirects here after user authorizes.
     Exchanges code for tokens, fetches audio profile, stores everything.
     """
-    user_id = await verify_oauth_state(state)
+    grant = await finish_callback(SPOTIFY, code, state)
+    user_id, access_token = grant.user_id, grant.access_token
     settings = get_settings()
 
     async with httpx.AsyncClient(timeout=20.0) as client:
-        # 1. Exchange authorization code for access + refresh tokens
-        token_resp = await client.post(
-            _SPOTIFY_TOKEN_URL,
-            data={
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": settings.spotify_redirect_uri,
-            },
-            auth=(settings.spotify_client_id, settings.spotify_client_secret),
-        )
-        token_resp.raise_for_status()
-        tokens = token_resp.json()
-
-        access_token = tokens["access_token"]
-        refresh_token = tokens.get("refresh_token", "")
-        expires_in = tokens.get("expires_in", 3600)
-        scope = tokens.get("scope", "")
-        expires_at = int(time.time()) + expires_in
 
         headers = {"Authorization": f"Bearer {access_token}"}
 
         # 2. Fetch, distill, and store the Spotify profile
         spotify_profile = await _ingest_spotify_data(client, headers, user_id)
-
-    # 3. Store tokens via shared helper
-    await store_oauth_tokens(
-        user_id, "spotify", access_token, refresh_token, expires_at, scope,
-    )
 
     # 4. Auto-trigger Oracle synthesis if enough providers connected
     from ..oracle.trigger import maybe_trigger_synthesis

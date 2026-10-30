@@ -13,22 +13,17 @@ Flow:
 from __future__ import annotations
 
 import json
-import time
-from urllib.parse import urlencode
 from uuid import UUID
 
-import secrets
 
 import httpx
-import jwt
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 
 from ..auth.deps import get_current_user_id
 from ..config import get_settings
 from ..db import get_conn
-from ..llm.encryption import encrypt_api_key
-from ..oauth_base import store_provider_data, validate_connect_token
+from ..oauth_base import OAuthProvider, authorize_url, finish_callback, require_configured, store_provider_data, validate_connect_token
 from ..llm.chat import chat_completion
 
 router = APIRouter()
@@ -39,37 +34,13 @@ _GCAL_API_BASE = "https://www.googleapis.com/calendar/v3"
 _SCOPES = "https://www.googleapis.com/auth/calendar.readonly"
 
 
-# ── State helpers ─────────────────────────────────────────────────────────────
-
-def _make_state(user_id: str) -> str:
-    nonce = secrets.token_urlsafe(16)
-    payload = {"sub": user_id, "nonce": nonce, "exp": int(time.time()) + 600}
-    return jwt.encode(payload, get_settings().jwt_secret, algorithm="HS256")
-
-
-async def _verify_state(state: str) -> str:
-    try:
-        payload = jwt.decode(state, get_settings().jwt_secret, algorithms=["HS256"])
-    except jwt.PyJWTError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state") from exc
-
-    nonce = payload.get("nonce")
-    if not nonce:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state — missing nonce")
-
-    async with get_conn() as conn:
-        try:
-            await conn.execute(
-                "INSERT INTO _oauth_nonces (nonce, consumed_at) VALUES ($1, now())",
-                nonce,
-            )
-        except Exception:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="OAuth state already consumed — possible replay attack",
-            )
-
-    return payload["sub"]
+GCAL = OAuthProvider(
+    name="gcal", label="Google Calendar",
+    auth_url=_GOOGLE_AUTH_URL, token_url=_GOOGLE_TOKEN_URL, scopes=_SCOPES,
+    client_id=lambda s: s.google_client_id, client_secret=lambda s: s.google_client_secret,
+    redirect_uri=lambda s: s.gcal_redirect_uri,
+    authorize_params={"access_type": "offline", "prompt": "consent"},
+)
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -77,22 +48,9 @@ async def _verify_state(state: str) -> str:
 @router.get("/connect")
 async def gcal_connect(ct: str = Query(..., description="Short-lived connect token")):
     """Redirect user to Google OAuth with calendar.readonly scope."""
-    settings = get_settings()
-    if not settings.google_client_id:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Google OAuth not configured")
-
+    require_configured(GCAL)  # before the one-use connect token is spent
     payload = await validate_connect_token(ct)
-
-    params = {
-        "client_id": settings.google_client_id,
-        "redirect_uri": settings.gcal_redirect_uri,
-        "response_type": "code",
-        "scope": _SCOPES,
-        "state": _make_state(payload["sub"]),
-        "access_type": "offline",
-        "prompt": "consent",
-    }
-    resp = RedirectResponse(f"{_GOOGLE_AUTH_URL}?{urlencode(params)}")
+    resp = RedirectResponse(authorize_url(GCAL, payload["sub"]))
     # Prevent the ?ct= token from leaking to Google via the Referer header.
     resp.headers["Referrer-Policy"] = "no-referrer"
     return resp
@@ -101,29 +59,11 @@ async def gcal_connect(ct: str = Query(..., description="Short-lived connect tok
 @router.get("/callback")
 async def gcal_callback(code: str, state: str):
     """Google redirects here. Exchange code, fetch calendar data, store."""
-    user_id = await _verify_state(state)
+    grant = await finish_callback(GCAL, code, state)
+    user_id, access_token = grant.user_id, grant.access_token
     settings = get_settings()
 
     async with httpx.AsyncClient(timeout=20.0) as client:
-        # 1. Exchange code for tokens
-        token_resp = await client.post(
-            _GOOGLE_TOKEN_URL,
-            data={
-                "client_id": settings.google_client_id,
-                "client_secret": settings.google_client_secret,
-                "code": code,
-                "grant_type": "authorization_code",
-                "redirect_uri": settings.gcal_redirect_uri,
-            },
-        )
-        if token_resp.status_code != 200:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Google token exchange failed")
-
-        tokens = token_resp.json()
-        access_token = tokens["access_token"]
-        refresh_token = tokens.get("refresh_token", "")
-        expires_in = tokens.get("expires_in", 3600)
-        expires_at = int(time.time()) + expires_in
 
         headers = {"Authorization": f"Bearer {access_token}"}
 
@@ -160,35 +100,6 @@ async def gcal_callback(code: str, state: str):
 
     # 4. Distill temporal profile
     gcal_profile = _distill_profile(events_data, calendars)
-
-    # 5. Encrypt and store tokens
-    enc_access, access_nonce = encrypt_api_key(access_token)
-    enc_refresh, refresh_nonce = encrypt_api_key(refresh_token) if refresh_token else (None, None)
-
-    from datetime import datetime as dt
-    expires_dt = dt.fromtimestamp(expires_at, tz=timezone.utc)
-
-    async with get_conn() as conn:
-        await conn.execute(
-            """
-            INSERT INTO oauth_tokens
-                (user_id, provider, encrypted_access_token, access_nonce,
-                 encrypted_refresh_token, refresh_nonce, expires_at, scope)
-            VALUES ($1, 'gcal', $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (user_id, provider) DO UPDATE SET
-                encrypted_access_token  = EXCLUDED.encrypted_access_token,
-                access_nonce            = EXCLUDED.access_nonce,
-                encrypted_refresh_token = EXCLUDED.encrypted_refresh_token,
-                refresh_nonce           = EXCLUDED.refresh_nonce,
-                expires_at              = EXCLUDED.expires_at,
-                scope                   = EXCLUDED.scope,
-                updated_at              = now()
-            """,
-            UUID(user_id),
-            enc_access, access_nonce,
-            enc_refresh, refresh_nonce,
-            expires_dt, _SCOPES,
-        )
 
     await store_provider_data(user_id, "gcal_data", gcal_profile)
 
