@@ -262,6 +262,9 @@
           </div>
         </div>
 
+        <!-- Movement: Apple Health via the user's Shortcut (replaced Strava) -->
+        <MovementShortcut />
+
         <!-- Strava -->
         <div v-if="oauthState.strava.connected"
              class="ccard-active border border-orange-500/50 rounded-2xl p-6 shadow-xl">
@@ -272,14 +275,20 @@
             </div>
             <router-link to="/calibrate/strava" class="text-xs font-medium text-orange-400 bg-orange-400/10 border border-orange-500/30 rounded-full px-3 py-1 hover:bg-orange-400/20 transition-colors">View Signal &rarr;</router-link>
           </div>
-          <!-- Loading skeleton -->
-          <div v-if="stravaLoading || !stravaProfile" class="space-y-3 animate-pulse">
+          <!-- Loading skeleton: only while a request is actually in flight -->
+          <div v-if="stravaLoading" class="space-y-3 animate-pulse">
             <div class="h-4 skel-line rounded w-3/4"></div>
             <div class="h-4 skel-line rounded w-1/2"></div>
             <div class="h-4 skel-line rounded w-2/3"></div>
           </div>
+          <p v-else-if="!stravaProfile" class="text-sm text-gray-400">
+            Nothing stored yet.{{ stravaError ? ' ' + stravaError : '' }}
+          </p>
           <!-- Data mirror -->
           <div v-else class="space-y-4">
+            <p class="text-xs text-gray-500" data-testid="strava-freshness">
+              {{ stravaSnapshotLine }}<span v-if="stravaError"> · {{ stravaError }}</span>
+            </p>
             <div>
               <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Activity Breakdown</p>
               <p class="text-sm text-gray-300">
@@ -307,6 +316,7 @@
               </div>
             </div>
           </div>
+          <p class="mt-4 text-xs text-gray-500" data-testid="strava-retired">{{ RETIRED_PROVIDERS.strava }}</p>
           <p class="mt-4 text-xs text-gray-600 font-mono italic">Since your body holds the tension your mind ignores.</p>
         </div>
         <div v-else
@@ -318,11 +328,7 @@
             </div>
             <StravaConnect />
           </div>
-          <div class="space-y-3 text-gray-300">
-            <p><strong>Data Collected:</strong> Heart-rate exertion curves, elevation masochism, routing patterns, recovery windows.</p>
-            <p><strong>Correlation Engine:</strong> Maps your body's behavioral signature — exertion cadence, elevation obsessions, recovery windows — into a somatic narrative the Oracle reads as psychological data.</p>
-          </div>
-          <p class="mt-4 text-xs text-gray-600 font-mono italic">Since your body holds the tension your mind ignores.</p>
+          <p class="text-sm text-gray-400" data-testid="strava-retired">{{ RETIRED_PROVIDERS.strava }}</p>
         </div>
 
         <!-- Google Calendar -->
@@ -799,6 +805,8 @@ import SignalIcon from '@/components/icons/SignalIcon.vue'
 import SpotifyConnect from '@/components/SpotifyConnect.vue'
 import TwitterConnect from '@/components/TwitterConnect.vue'
 import StravaConnect from '@/components/StravaConnect.vue'
+import MovementShortcut from '@/components/MovementShortcut.vue'
+import { connectorConfigs, RETIRED_PROVIDERS } from '@/config/connectorConfig'
 import CoStarConnect from '@/components/CoStarConnect.vue'
 import LetterboxdConnect from '@/components/LetterboxdConnect.vue'
 import SteamConnect from '@/components/SteamConnect.vue'
@@ -872,6 +880,13 @@ const synthProviderKeys = computed(() =>
     .filter((k) => oauthState.value[k].connected),
 )
 
+// The synthesis overlay's second line per provider ("The Somatic Ledger").
+// The template used this since June without it being defined, so the line
+// rendered empty at best; derived from the connector config, one source.
+const SIGNAL_LABELS: Record<string, string> = Object.fromEntries(
+  Object.values(connectorConfigs).map((c) => [c.key, c.subtitle]),
+)
+
 const PROVIDER_LABELS: Record<string, string> = {
   spotify: 'Spotify',
   twitter: 'X / Twitter',
@@ -917,6 +932,7 @@ interface StravaProfile {
   all_time_run_distance_km: number
   all_time_rides: number
   all_time_ride_distance_km: number
+  synced_at?: string
 }
 
 interface TwitterProfile {
@@ -1021,6 +1037,18 @@ async function fetchStravaProfile() {
   } catch { /* non-blocking */ }
   stravaLoading.value = false
 }
+
+// Says how old the numbers are; profiles stored before synced_at existed are
+// "from when you connected".
+const stravaSnapshotLine = computed(() => {
+  const p = stravaProfile.value
+  if (!p) return ''
+  const n = `${p.recent_count} activit${p.recent_count === 1 ? 'y' : 'ies'}`
+  if (!p.synced_at) return `A snapshot from when you connected · ${n}`
+  const d = new Date(p.synced_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return `A snapshot from ${d} · ${n}`
+})
+const stravaError = ref('')
 
 async function fetchTwitterProfile() {
   if (twitterProfile.value || twitterLoading.value) return

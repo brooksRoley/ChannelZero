@@ -240,3 +240,74 @@ class TestBuildAuthorizeUrl:
             response_type="token",
         )
         assert "response_type=token" in url
+
+
+# ── refresh_if_needed ─────────────────────────────────────────────────────────
+
+import asyncio as _asyncio
+from datetime import timedelta as _td
+from unittest.mock import AsyncMock as _AsyncMock, MagicMock as _MagicMock, patch as _patch
+
+from fastapi import HTTPException as _HTTPException
+
+from app import oauth_base as _ob
+
+_UID = "00000000-0000-0000-0000-000000000009"
+
+
+class _Client:
+    def __init__(self, posts):
+        self.post = _AsyncMock(side_effect=posts)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+def _resp(code, data=None):
+    m = _MagicMock()
+    m.status_code = code
+    m.json.return_value = data or {}
+    m.text = "raw provider body"
+    return m
+
+
+def _tokens(expires_in, refresh="r-old"):
+    from datetime import datetime, timezone
+    return {"access_token": "a-old", "refresh_token": refresh,
+            "expires_at": datetime.now(timezone.utc) + expires_in, "scope": "s"}
+
+
+def _refresh(tokens, client=None):
+    store = _AsyncMock()
+    with _patch.object(_ob, "get_stored_tokens", new=_AsyncMock(return_value=tokens)), \
+         _patch.object(_ob, "store_oauth_tokens", new=store), \
+         _patch.object(_ob.httpx, "AsyncClient", return_value=client or _Client([])):
+        return _asyncio.run(_ob.refresh_if_needed(_UID, "spotify", "https://t", "id", "sec")), store
+
+
+class TestRefreshIfNeeded:
+    def test_live_token_is_returned_without_a_call(self):
+        token, store = _refresh(_tokens(_td(hours=2)))
+        assert token == "a-old"
+        store.assert_not_awaited()
+
+    def test_expired_token_is_refreshed_and_the_rotated_refresh_token_kept(self):
+        client = _Client([_resp(200, {"access_token": "a-new", "refresh_token": "r-new",
+                                      "expires_at": 2000000000})])
+        token, store = _refresh(_tokens(_td(minutes=2)), client)
+        assert token == "a-new"
+        store.assert_awaited_once_with(_UID, "spotify", "a-new", "r-new", 2000000000, "s")
+
+    def test_refused_refresh_is_409_never_401(self):
+        with pytest.raises(_HTTPException) as e:
+            _refresh(_tokens(-_td(hours=1)), _Client([_resp(400)]))
+        assert e.value.status_code == 409 and e.value.detail["code"] == "reauth_required"
+        assert "raw provider body" not in str(e.value.detail)
+
+    def test_nothing_stored_is_404(self):
+        with pytest.raises(_HTTPException) as e:
+            _refresh(None)
+        assert e.value.status_code == 404

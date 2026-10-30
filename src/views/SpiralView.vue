@@ -156,7 +156,7 @@ useAnimationCanvas(canvasRef, {
       v-if="isReaderMode"
       class="reader-progress"
       role="progressbar"
-      :aria-valuenow="Math.round(readerProgress)"
+      :aria-valuenow="Math.round(readerProgress ?? 0)"
       aria-valuemin="0"
       aria-valuemax="100"
       aria-label="Reading progress"

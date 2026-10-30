@@ -24,6 +24,12 @@ const API = import.meta.env.VITE_API_URL || ''
 onMounted(async () => {
   const code = route.query.code as string | undefined
   const state = route.query.state as string | undefined
+  const scope = route.query.scope as string | undefined
+
+  if (route.query.error) {
+    errorMsg.value = "Strava wasn't connected: access was declined."
+    return
+  }
 
   if (!code || !state) {
     errorMsg.value = 'Missing authorization code or state.'
@@ -31,14 +37,18 @@ onMounted(async () => {
   }
 
   try {
-    const res = await fetch(`${API}/api/strava/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`)
+    // scope = what the user actually granted; the server refuses a connection
+    // without activity access rather than storing an empty profile.
+    const scopeParam = scope !== undefined ? `&scope=${encodeURIComponent(scope)}` : ''
+    const res = await fetch(`${API}/api/strava/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}${scopeParam}`)
 
     if (res.ok) {
       markConnected('strava')
       router.replace('/peripheral')
     } else {
       const data = await res.json().catch(() => ({}))
-      throw new Error(data.detail || 'Strava callback failed')
+      const d = data.detail
+      throw new Error((d && typeof d === 'object' ? d.message : d) || 'Strava callback failed')
     }
   } catch (e: any) {
     errorMsg.value = e.message || 'Strava sync failed.'

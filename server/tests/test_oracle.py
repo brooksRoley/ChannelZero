@@ -216,9 +216,10 @@ class TestBuildPrompts:
     def test_oracle_prompt_contains_all_provider_labels(self):
         req = SynthesisRequest()
         prompt = _build_oracle_prompt(USER_STR, req)
+        assert "Somatic Ledger" not in prompt  # Strava retired: never in an LLM prompt
         for label in [
             "Sonic Baseline", "Neurotic Output", "Temporal Anxiety",
-            "Somatic Ledger", "Fatalism Mirror", "Empathy Simulator",
+            "Fatalism Mirror", "Empathy Simulator",
             "Isolation Metric", "Builder Intensity", "Parasocial Field",
             "Tribal Signal", "Aesthetic Mirror", "Cultural Velocity",
             "Psychometric Profile",

@@ -41,7 +41,8 @@ const totalItems = computed(() => items.value.length)
 
 // ── Connector round-robin ────────────────────────────────────────
 const CONNECTOR_KEY = 'cz-last-reflect-connector'
-const CONNECTORS = ['spotify', 'strava']
+// Strava was retired 2026-10-30 (see server/app/providers.py).
+const CONNECTORS = ['spotify']
 
 function pickConnector(): string {
   const last = localStorage.getItem(CONNECTOR_KEY)
