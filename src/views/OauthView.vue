@@ -313,9 +313,7 @@
               </div>
             </div>
           </div>
-          <button v-if="!stravaLoading" class="mt-4 text-xs text-orange-400 hover:underline" @click="syncStrava">
-            {{ stravaSyncing ? 'Asking Strava…' : 'Refresh from Strava' }}
-          </button>
+          <p class="mt-4 text-xs text-gray-500" data-testid="strava-retired">{{ RETIRED_PROVIDERS.strava }}</p>
           <p class="mt-4 text-xs text-gray-600 font-mono italic">Since your body holds the tension your mind ignores.</p>
         </div>
         <div v-else
@@ -327,11 +325,7 @@
             </div>
             <StravaConnect />
           </div>
-          <div class="space-y-3 text-gray-300">
-            <p><strong>Data Used:</strong> your last 30 activities: their types, distance, time moving, elevation and average heart rate. Never your routes or maps.</p>
-            <p><strong>Correlation Engine:</strong> Maps your body's behavioral signature — exertion cadence, elevation obsessions, recovery windows — into a somatic narrative the Oracle reads as psychological data.</p>
-          </div>
-          <p class="mt-4 text-xs text-gray-600 font-mono italic">Since your body holds the tension your mind ignores.</p>
+          <p class="text-sm text-gray-400" data-testid="strava-retired">{{ RETIRED_PROVIDERS.strava }}</p>
         </div>
 
         <!-- Google Calendar -->
@@ -808,6 +802,7 @@ import SignalIcon from '@/components/icons/SignalIcon.vue'
 import SpotifyConnect from '@/components/SpotifyConnect.vue'
 import TwitterConnect from '@/components/TwitterConnect.vue'
 import StravaConnect from '@/components/StravaConnect.vue'
+import { RETIRED_PROVIDERS } from '@/config/connectorConfig'
 import CoStarConnect from '@/components/CoStarConnect.vue'
 import LetterboxdConnect from '@/components/LetterboxdConnect.vue'
 import SteamConnect from '@/components/SteamConnect.vue'
@@ -1043,19 +1038,6 @@ const stravaSnapshotLine = computed(() => {
   return `A snapshot from ${d} · ${n}`
 })
 const stravaError = ref('')
-const stravaSyncing = ref(false)
-async function syncStrava() {
-  if (stravaSyncing.value) return
-  stravaSyncing.value = true
-  stravaError.value = ''
-  try {
-    const r = await apiFetch<{ profile: StravaProfile }>('/api/strava/sync', { method: 'POST' })
-    stravaProfile.value = r.profile
-  } catch (e: any) {
-    stravaError.value = e?.message || "Strava didn't answer."
-  }
-  stravaSyncing.value = false
-}
 
 async function fetchTwitterProfile() {
   if (twitterProfile.value || twitterLoading.value) return

@@ -25,7 +25,7 @@ from .conftest import FakeConn, make_get_conn
 USER_ID = UUID("00000000-0000-0000-0000-000000000009")
 
 _SPOTIFY_DATA = {"top_genres": ["ambient", "electronic"], "energy": 0.7}
-_STRAVA_DATA = {"total_distance_km": 300.0, "activity_types": {"Run": 20}}
+_GITHUB_DATA = {"public_repos": 30, "top_languages": ["TypeScript"]}
 
 _NULL_ROW: dict = {
     "spotify_data": None,
@@ -174,13 +174,13 @@ class TestGetCorrelations:
     def test_returns_correlations_when_multi_provider_data_present(self):
         llm_response = json.dumps([{
             "source": {"provider": "spotify", "field": "energy", "value": 0.7, "label": "Energy"},
-            "target": {"provider": "strava", "field": "total_distance_km",
-                       "value": 300.0, "label": "Distance"},
+            "target": {"provider": "github", "field": "public_repos",
+                       "value": 30, "label": "Repos"},
             "explanation": "High musical energy correlates with high training volume.",
         }])
         conn = FakeConn(fetchrow_results=[_row(
             spotify_data=json.dumps(_SPOTIFY_DATA),
-            strava_data=json.dumps(_STRAVA_DATA),
+            github_data=json.dumps(_GITHUB_DATA),
         )])
         with patch("app.connectors.router.llm_configured", return_value=True), \
              patch("app.connectors.router.get_conn", make_get_conn(conn)), \
@@ -191,13 +191,13 @@ class TestGetCorrelations:
         body = resp.json()
         assert len(body) == 1
         assert body[0]["source"]["provider"] == "spotify"
-        assert body[0]["target"]["provider"] == "strava"
+        assert body[0]["target"]["provider"] == "github"
 
     def test_returns_empty_when_llm_raises_http_exception(self):
         from fastapi import HTTPException as FastAPIHTTPException
         conn = FakeConn(fetchrow_results=[_row(
             spotify_data=json.dumps(_SPOTIFY_DATA),
-            strava_data=json.dumps(_STRAVA_DATA),
+            github_data=json.dumps(_GITHUB_DATA),
         )])
         with patch("app.connectors.router.llm_configured", return_value=True), \
              patch("app.connectors.router.get_conn", make_get_conn(conn)), \
@@ -210,7 +210,7 @@ class TestGetCorrelations:
     def test_returns_empty_when_llm_returns_invalid_json(self):
         conn = FakeConn(fetchrow_results=[_row(
             spotify_data=json.dumps(_SPOTIFY_DATA),
-            strava_data=json.dumps(_STRAVA_DATA),
+            github_data=json.dumps(_GITHUB_DATA),
         )])
         with patch("app.connectors.router.llm_configured", return_value=True), \
              patch("app.connectors.router.get_conn", make_get_conn(conn)), \
@@ -223,14 +223,14 @@ class TestGetCorrelations:
         payload = json.dumps([{
             "source": {"provider": "spotify", "field": "energy", "value": 0.7,
                        "label": "Energy"},
-            "target": {"provider": "strava", "field": "total_distance_km",
-                       "value": 300.0, "label": "Distance"},
+            "target": {"provider": "github", "field": "public_repos",
+                       "value": 30, "label": "Repos"},
             "explanation": "correlation",
         }])
         fenced = f"```json\n{payload}\n```"
         conn = FakeConn(fetchrow_results=[_row(
             spotify_data=json.dumps(_SPOTIFY_DATA),
-            strava_data=json.dumps(_STRAVA_DATA),
+            github_data=json.dumps(_GITHUB_DATA),
         )])
         with patch("app.connectors.router.llm_configured", return_value=True), \
              patch("app.connectors.router.get_conn", make_get_conn(conn)), \
@@ -244,13 +244,13 @@ class TestGetCorrelations:
         payload = json.dumps([{
             "source": {"provider": "spotify", "field": "energy", "value": 0.7,
                        "label": "Energy"},
-            "target": {"provider": "strava", "field": "total_distance_km",
-                       "value": 300.0, "label": "Distance"},
+            "target": {"provider": "github", "field": "public_repos",
+                       "value": 30, "label": "Repos"},
             "explanation": "correlation",
         }])
         conn = FakeConn(fetchrow_results=[_row(
             spotify_data=_SPOTIFY_DATA,   # dict, not JSON string
-            strava_data=_STRAVA_DATA,     # dict, not JSON string
+            github_data=_GITHUB_DATA,     # dict, not JSON string
         )])
         with patch("app.connectors.router.llm_configured", return_value=True), \
              patch("app.connectors.router.get_conn", make_get_conn(conn)), \

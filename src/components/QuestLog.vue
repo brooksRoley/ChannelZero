@@ -156,17 +156,6 @@ const steps = computed<Step[]>(() => {
       done:   oauth.twitter.connected,
     },
     {
-      key:    'strava',
-      phase:  'Phase 2 — Signal Collection',
-      label:  'Connect Strava',
-      desc:   'Your movement data becomes a somatic ledger — rhythm, distance, consistency.',
-      action: 'Connect Strava',
-      icon:   '◎',
-      color:  '#fc4c02',
-      route:  '/calibrate',
-      done:   oauth.strava.connected,
-    },
-    {
       key:    'confess',
       phase:  'Phase 3 — Confession',
       label:  'Confession',

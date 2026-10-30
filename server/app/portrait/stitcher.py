@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 from pydantic import ValidationError
 
+from ..providers import ai_columns
 from .models import Portrait
 
 # Same column map as oracle/trigger.py — includes steam (the correlations
@@ -74,7 +75,8 @@ def connected_providers(row) -> dict[str, dict]:
     """Filter a vibe_vectors row down to {provider_key: profile_dict} for
     providers with real data. Accepts any mapping (asyncpg Record or dict)."""
     out: dict[str, dict] = {}
-    for key, col in PROVIDER_COLUMNS.items():
+    # The portrait is written by an LLM: retired providers are never read.
+    for key, col in ai_columns(PROVIDER_COLUMNS).items():
         try:
             val = row[col]
         except (KeyError, IndexError):
