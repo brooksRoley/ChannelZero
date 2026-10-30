@@ -262,6 +262,9 @@
           </div>
         </div>
 
+        <!-- Movement: Apple Health via the user's Shortcut (replaced Strava) -->
+        <MovementShortcut />
+
         <!-- Strava -->
         <div v-if="oauthState.strava.connected"
              class="ccard-active border border-orange-500/50 rounded-2xl p-6 shadow-xl">
@@ -802,6 +805,7 @@ import SignalIcon from '@/components/icons/SignalIcon.vue'
 import SpotifyConnect from '@/components/SpotifyConnect.vue'
 import TwitterConnect from '@/components/TwitterConnect.vue'
 import StravaConnect from '@/components/StravaConnect.vue'
+import MovementShortcut from '@/components/MovementShortcut.vue'
 import { connectorConfigs, RETIRED_PROVIDERS } from '@/config/connectorConfig'
 import CoStarConnect from '@/components/CoStarConnect.vue'
 import LetterboxdConnect from '@/components/LetterboxdConnect.vue'
