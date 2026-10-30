@@ -272,14 +272,20 @@
             </div>
             <router-link to="/calibrate/strava" class="text-xs font-medium text-orange-400 bg-orange-400/10 border border-orange-500/30 rounded-full px-3 py-1 hover:bg-orange-400/20 transition-colors">View Signal &rarr;</router-link>
           </div>
-          <!-- Loading skeleton -->
-          <div v-if="stravaLoading || !stravaProfile" class="space-y-3 animate-pulse">
+          <!-- Loading skeleton: only while a request is actually in flight -->
+          <div v-if="stravaLoading" class="space-y-3 animate-pulse">
             <div class="h-4 skel-line rounded w-3/4"></div>
             <div class="h-4 skel-line rounded w-1/2"></div>
             <div class="h-4 skel-line rounded w-2/3"></div>
           </div>
+          <p v-else-if="!stravaProfile" class="text-sm text-gray-400">
+            Nothing stored yet.{{ stravaError ? ' ' + stravaError : '' }}
+          </p>
           <!-- Data mirror -->
           <div v-else class="space-y-4">
+            <p class="text-xs text-gray-500" data-testid="strava-freshness">
+              {{ stravaSnapshotLine }}<span v-if="stravaError"> · {{ stravaError }}</span>
+            </p>
             <div>
               <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Activity Breakdown</p>
               <p class="text-sm text-gray-300">
@@ -307,6 +313,9 @@
               </div>
             </div>
           </div>
+          <button v-if="!stravaLoading" class="mt-4 text-xs text-orange-400 hover:underline" @click="syncStrava">
+            {{ stravaSyncing ? 'Asking Strava…' : 'Refresh from Strava' }}
+          </button>
           <p class="mt-4 text-xs text-gray-600 font-mono italic">Since your body holds the tension your mind ignores.</p>
         </div>
         <div v-else
@@ -319,7 +328,7 @@
             <StravaConnect />
           </div>
           <div class="space-y-3 text-gray-300">
-            <p><strong>Data Collected:</strong> Heart-rate exertion curves, elevation masochism, routing patterns, recovery windows.</p>
+            <p><strong>Data Used:</strong> your last 30 activities: their types, distance, time moving, elevation and average heart rate. Never your routes or maps.</p>
             <p><strong>Correlation Engine:</strong> Maps your body's behavioral signature — exertion cadence, elevation obsessions, recovery windows — into a somatic narrative the Oracle reads as psychological data.</p>
           </div>
           <p class="mt-4 text-xs text-gray-600 font-mono italic">Since your body holds the tension your mind ignores.</p>
@@ -917,6 +926,7 @@ interface StravaProfile {
   all_time_run_distance_km: number
   all_time_rides: number
   all_time_ride_distance_km: number
+  synced_at?: string
 }
 
 interface TwitterProfile {
@@ -1020,6 +1030,31 @@ async function fetchStravaProfile() {
     stravaProfile.value = await apiFetch<StravaProfile>('/api/strava/profile')
   } catch { /* non-blocking */ }
   stravaLoading.value = false
+}
+
+// Says how old the numbers are; profiles stored before synced_at existed are
+// "from when you connected".
+const stravaSnapshotLine = computed(() => {
+  const p = stravaProfile.value
+  if (!p) return ''
+  const n = `${p.recent_count} activit${p.recent_count === 1 ? 'y' : 'ies'}`
+  if (!p.synced_at) return `A snapshot from when you connected · ${n}`
+  const d = new Date(p.synced_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return `A snapshot from ${d} · ${n}`
+})
+const stravaError = ref('')
+const stravaSyncing = ref(false)
+async function syncStrava() {
+  if (stravaSyncing.value) return
+  stravaSyncing.value = true
+  stravaError.value = ''
+  try {
+    const r = await apiFetch<{ profile: StravaProfile }>('/api/strava/sync', { method: 'POST' })
+    stravaProfile.value = r.profile
+  } catch (e: any) {
+    stravaError.value = e?.message || "Strava didn't answer."
+  }
+  stravaSyncing.value = false
 }
 
 async function fetchTwitterProfile() {
