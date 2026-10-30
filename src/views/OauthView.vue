@@ -665,36 +665,8 @@
           <p class="mt-4 text-xs text-gray-600 font-mono italic">The things you upvote when no one's watching say everything.</p>
         </div>
 
-        <!-- Instagram -->
-        <div v-if="oauthState.instagram.connected"
-             class="ccard-active border border-pink-500/50 rounded-2xl p-6 shadow-xl">
-          <div class="flex justify-between items-start mb-4">
-            <div>
-              <h2 class="text-2xl font-bold text-pink-400">Instagram</h2>
-              <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wider mt-1">The Curated Self</h3>
-            </div>
-            <router-link to="/calibrate/instagram" class="text-xs font-medium text-pink-400 bg-pink-400/10 border border-pink-500/30 rounded-full px-3 py-1 hover:bg-pink-400/20 transition-colors">View Signal &rarr;</router-link>
-          </div>
-          <div class="space-y-3 text-gray-300">
-            <p>Your visual identity is being analyzed. The Oracle reads the gap between your grid and your reality.</p>
-          </div>
-          <p class="mt-4 text-xs text-gray-600 font-mono italic">The grid is a mirror, not a window.</p>
-        </div>
-        <div v-else
-             class="ccard-coming border rounded-2xl p-6 shadow-xl opacity-60 cursor-not-allowed select-none"
-             aria-disabled="true">
-          <div class="flex justify-between items-start mb-4">
-            <div>
-              <h2 class="text-2xl font-bold text-pink-400/70">Instagram</h2>
-              <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wider mt-1">The Curated Self</h3>
-            </div>
-            <span class="text-xs font-medium text-gray-400 bg-gray-700/40 border border-gray-600/40 rounded-full px-3 py-1 whitespace-nowrap">Coming soon</span>
-          </div>
-          <div class="space-y-3 text-gray-400">
-            <p>Instagram isn't a live connection yet. The Oracle will soon read the gap between your curated grid and your signal fingerprint.</p>
-          </div>
-          <p class="mt-4 text-xs text-gray-600 font-mono italic">The grid is a mirror, not a window.</p>
-        </div>
+        <!-- Instagram: retired API; the user's own export, read on the device -->
+        <InstagramImport />
 
         <!-- TikTok -->
         <div v-if="oauthState.tiktok.connected"
@@ -806,6 +778,7 @@ import SpotifyConnect from '@/components/SpotifyConnect.vue'
 import TwitterConnect from '@/components/TwitterConnect.vue'
 import StravaConnect from '@/components/StravaConnect.vue'
 import MovementShortcut from '@/components/MovementShortcut.vue'
+import InstagramImport from '@/components/InstagramImport.vue'
 import { connectorConfigs, RETIRED_PROVIDERS } from '@/config/connectorConfig'
 import CoStarConnect from '@/components/CoStarConnect.vue'
 import LetterboxdConnect from '@/components/LetterboxdConnect.vue'

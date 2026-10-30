@@ -83,7 +83,6 @@ You must extract their underlying friction points, their isolation metrics, thei
 <provider name="github" label="Builder Intensity">{_sanitize_provider(data.github.data)}</provider>
 <provider name="youtube" label="Parasocial Field">{_sanitize_provider(data.youtube.data)}</provider>
 <provider name="reddit" label="Tribal Signal">{_sanitize_provider(data.reddit.data)}</provider>
-<provider name="instagram" label="Aesthetic Mirror">{_sanitize_provider(data.instagram.data)}</provider>
 <provider name="tiktok" label="Cultural Velocity">{_sanitize_provider(data.tiktok.data)}</provider>
 <provider name="psychometrics" label="Psychometric Profile">{_sanitize_provider(data.psychometrics.data)}</provider>
 </user_data>
@@ -225,7 +224,6 @@ Data:
 <provider name="github">{_sanitize_provider(data.github.data)}</provider>
 <provider name="youtube">{_sanitize_provider(data.youtube.data)}</provider>
 <provider name="reddit">{_sanitize_provider(data.reddit.data)}</provider>
-<provider name="instagram">{_sanitize_provider(data.instagram.data)}</provider>
 <provider name="tiktok">{_sanitize_provider(data.tiktok.data)}</provider>
 <provider name="psychometrics">{_sanitize_provider(data.psychometrics.data)}</provider>
 

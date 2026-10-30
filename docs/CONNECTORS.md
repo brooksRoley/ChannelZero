@@ -7,7 +7,8 @@ provider's data. Nothing else is needed.
 ## 0. Read the provider's terms first
 
 Strava was retired on 2026-10-30 because its API Policy forbids any AI use of
-API data. The Oracle, the portrait and the correlations all put connector
+API data. Instagram was retired the same day: its API no longer serves personal
+accounts. The Oracle, the portrait and the correlations all put connector
 data into a model's context. Before writing code, answer these from the
 provider's developer terms and write the answers in the router's docstring:
 
@@ -96,9 +97,11 @@ for its distill function and its 503 guard (patch
 
 ## Not on the shared flow
 
-- **Instagram**: a GET exchange on Facebook, then a long-lived token exchange
-  on graph.instagram.com. It shares state and storage only. Its
-  `ig_exchange_token` step comes from the Instagram Basic Display API, which
-  Meta shut down in December 2024, so check it before relying on it.
+- **Instagram: retired** (2026-10-30). Instagram's only API now serves
+  Business and Creator accounts, so a personal account can't connect. The old
+  flow also mixed Facebook Login with Instagram Login's token host, so it
+  could never have completed. Activity comes from the user's own data export,
+  parsed on the device (`src/composables/instagramExport.ts`): counts per day
+  and hour only, never uploaded.
 - **Steam** (OpenID 2.0) and **Letterboxd** (signed requests): no OAuth2 code
   exchange. They share the state helpers.
