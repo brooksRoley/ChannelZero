@@ -23,7 +23,6 @@ _PROVIDER_COLUMNS = {
     "github": "github_data",
     "youtube": "youtube_data",
     "reddit": "reddit_data",
-    "instagram": "instagram_data",
     "tiktok": "tiktok_data",
 }
 
@@ -99,7 +98,7 @@ async def maybe_trigger_synthesis(user_id: UUID) -> None:
         github=ProviderPayload(data=_parse(row["github_data"])),
         youtube=ProviderPayload(data=_parse(row["youtube_data"])),
         reddit=ProviderPayload(data=_parse(row["reddit_data"])),
-        instagram=ProviderPayload(data=_parse(row["instagram_data"])),
+        instagram=ProviderPayload(),  # retired: never sent to the LLM (app/providers.py)
         tiktok=ProviderPayload(data=_parse(row["tiktok_data"])),
         psychometrics=ProviderPayload(data=psych_data),
     )

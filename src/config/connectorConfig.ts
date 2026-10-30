@@ -341,4 +341,7 @@ export const RETIRED_PROVIDERS: Record<string, string> = {
   strava:
     "Strava's API now needs a paid subscription and forbids any AI use of its data, " +
     'so ChannelZero no longer connects to it.',
+  instagram:
+    "Instagram's API only serves Business and Creator accounts now, so a personal " +
+    'account can\'t connect. Import your own Instagram data export instead: it stays on this device.',
 }

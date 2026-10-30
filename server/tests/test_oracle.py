@@ -217,11 +217,12 @@ class TestBuildPrompts:
         req = SynthesisRequest()
         prompt = _build_oracle_prompt(USER_STR, req)
         assert "Somatic Ledger" not in prompt  # Strava retired: never in an LLM prompt
+        assert "Aesthetic Mirror" not in prompt  # Instagram retired
         for label in [
             "Sonic Baseline", "Neurotic Output", "Temporal Anxiety",
             "Fatalism Mirror", "Empathy Simulator",
             "Isolation Metric", "Builder Intensity", "Parasocial Field",
-            "Tribal Signal", "Aesthetic Mirror", "Cultural Velocity",
+            "Tribal Signal", "Cultural Velocity",
             "Psychometric Profile",
         ]:
             assert label in prompt

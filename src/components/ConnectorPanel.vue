@@ -173,21 +173,6 @@ const connectors = computed(() => [
     connected: oauthState.value.reddit.connected,
   },
   {
-    key: 'instagram',
-    label: 'Instagram',
-    svg: `<svg viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="ig" x1="0" y1="1" x2="1" y2="0"><stop offset="0%" stop-color="#feda75"/><stop offset="25%" stop-color="#fa7e1e"/><stop offset="50%" stop-color="#d62976"/><stop offset="75%" stop-color="#962fbf"/><stop offset="100%" stop-color="#4f5bd5"/></linearGradient></defs><rect width="20" height="20" x="2" y="2" rx="5" fill="none" stroke="url(#ig)" stroke-width="2"/><circle cx="12" cy="12" r="4.5" fill="none" stroke="url(#ig)" stroke-width="2"/><circle cx="17.5" cy="6.5" r="1.2" fill="url(#ig)"/></svg>`,
-    connect: async () => {
-      if (!token.value) return
-      const res = await fetch(`${API}/api/instagram/connect`, {
-        headers: { Authorization: `Bearer ${token.value}` },
-      })
-      if (res.status === 401) { logout(); window.location.href = '/login'; return }
-      const data = await res.json()
-      if (data.auth_url) window.location.href = data.auth_url
-    },
-    connected: oauthState.value.instagram.connected,
-  },
-  {
     key: 'tiktok',
     label: 'TikTok',
     svg: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1v-3.52a6.37 6.37 0 0 0-.79-.05A6.34 6.34 0 0 0 3.15 15.2a6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.34-6.34V9.39a8.16 8.16 0 0 0 4.76 1.53V7.39a4.85 4.85 0 0 1-1-.7z"/></svg>`,
@@ -211,7 +196,7 @@ const connectedCount = computed(() => connectors.value.filter((c) => c.connected
 // Steam has no connector config page yet — its connected pill goes to /calibrate
 const inspectablePages = new Set([
   'spotify', 'twitter', 'google', 'github', 'youtube',
-  'reddit', 'letterboxd', 'instagram', 'tiktok', 'costar',
+  'reddit', 'letterboxd', 'tiktok', 'costar',
 ])
 
 async function handleConnect(c: { connected: boolean; key: string; connect: () => unknown }) {
