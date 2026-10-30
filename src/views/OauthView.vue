@@ -802,7 +802,7 @@ import SignalIcon from '@/components/icons/SignalIcon.vue'
 import SpotifyConnect from '@/components/SpotifyConnect.vue'
 import TwitterConnect from '@/components/TwitterConnect.vue'
 import StravaConnect from '@/components/StravaConnect.vue'
-import { RETIRED_PROVIDERS } from '@/config/connectorConfig'
+import { connectorConfigs, RETIRED_PROVIDERS } from '@/config/connectorConfig'
 import CoStarConnect from '@/components/CoStarConnect.vue'
 import LetterboxdConnect from '@/components/LetterboxdConnect.vue'
 import SteamConnect from '@/components/SteamConnect.vue'
@@ -874,6 +874,13 @@ const ORACLE_DIMENSIONS = [
 const synthProviderKeys = computed(() =>
   (Object.keys(oauthState.value) as (keyof typeof oauthState.value)[])
     .filter((k) => oauthState.value[k].connected),
+)
+
+// The synthesis overlay's second line per provider ("The Somatic Ledger").
+// The template used this since June without it being defined, so the line
+// rendered empty at best; derived from the connector config, one source.
+const SIGNAL_LABELS: Record<string, string> = Object.fromEntries(
+  Object.values(connectorConfigs).map((c) => [c.key, c.subtitle]),
 )
 
 const PROVIDER_LABELS: Record<string, string> = {

@@ -214,7 +214,7 @@ const inspectablePages = new Set([
   'reddit', 'letterboxd', 'instagram', 'tiktok', 'costar',
 ])
 
-async function handleConnect(c: { connected: boolean; key: string; connect: () => Promise<void> | void }) {
+async function handleConnect(c: { connected: boolean; key: string; connect: () => unknown }) {
   if (c.connected) {
     router.push(inspectablePages.has(c.key) ? `/calibrate/${c.key}` : '/calibrate')
     return

@@ -372,14 +372,14 @@
               </div>
               <div v-if="styles[i]?.backdrop?.kind === 'solid'" class="field col-span-2">
                 <span>Colour</span>
-                <input type="color" class="color" :value="(styles[i]!.backdrop as { color: string }).color" @input="setStyle(i, { backdrop: { kind: 'solid', color: ($event.target as HTMLInputElement).value } })" />
+                <input type="color" class="color" :value="solidColor(i)" @input="setStyle(i, { backdrop: { kind: 'solid', color: ($event.target as HTMLInputElement).value } })" />
               </div>
               <div v-else-if="styles[i]?.backdrop?.kind === 'gradient'" class="field col-span-2">
                 <span>Gradient · top → bottom</span>
                 <div class="flex gap-2 items-center">
-                  <input type="color" class="color" :value="(styles[i]!.backdrop as { from: string }).from" @input="setStyle(i, { backdrop: { ...(styles[i]!.backdrop as Extract<Backdrop, { kind: 'gradient' }>), from: ($event.target as HTMLInputElement).value } })" />
+                  <input type="color" class="color" :value="gradientStop(i, 'from')" @input="setGradientStop(i, 'from', ($event.target as HTMLInputElement).value)" />
                   <span class="text-slate-600">→</span>
-                  <input type="color" class="color" :value="(styles[i]!.backdrop as { to: string }).to" @input="setStyle(i, { backdrop: { ...(styles[i]!.backdrop as Extract<Backdrop, { kind: 'gradient' }>), to: ($event.target as HTMLInputElement).value } })" />
+                  <input type="color" class="color" :value="gradientStop(i, 'to')" @input="setGradientStop(i, 'to', ($event.target as HTMLInputElement).value)" />
                 </div>
               </div>
 
@@ -666,6 +666,23 @@ const baseBackdrop = computed<Backdrop>(() => {
 const scenes = computed(() => resolveScenes(styles.value, parsed.value.length, baseBackdrop.value))
 const sceneInput = computed<SceneInput>(() => ({ scenes: scenes.value, media: media.value }))
 
+// Typed backdrop accessors for the colour inputs. Inline `as { … }` casts in
+// the template broke vue-tsc ("',' expected"), which fails the Vercel build.
+type GradientBackdrop = Extract<Backdrop, { kind: 'gradient' }>
+function solidColor(i: number): string {
+  const b = styles.value[i]?.backdrop
+  return b?.kind === 'solid' ? b.color : ''
+}
+function gradientStop(i: number, stop: 'from' | 'to'): string {
+  const b = styles.value[i]?.backdrop
+  return b?.kind === 'gradient' ? b[stop] : ''
+}
+function setGradientStop(i: number, stop: 'from' | 'to', value: string) {
+  const b = styles.value[i]?.backdrop
+  if (b?.kind !== 'gradient') return
+  const next: GradientBackdrop = { ...b, [stop]: value }
+  setStyle(i, { backdrop: next })
+}
 function setStyle(i: number, patch: Partial<BeatStyle>) {
   const next = [...styles.value]
   next[i] = cleanStyle({ ...next[i], ...patch })
