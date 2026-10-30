@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 _PROVIDER_COLUMNS = {
     "spotify": "spotify_data",
     "twitter": "twitter_data",
-    "strava": "strava_data",
     "gcal": "gcal_data",
     "costar": "costar_data",
     "letterboxd": "letterboxd_data",
@@ -92,7 +91,7 @@ async def maybe_trigger_synthesis(user_id: UUID) -> None:
     request = SynthesisRequest(
         spotify=ProviderPayload(data=_parse(row["spotify_data"])),
         twitter=ProviderPayload(data=_parse(row["twitter_data"])),
-        strava=ProviderPayload(data=_parse(row["strava_data"])),
+        strava=ProviderPayload(),  # retired: never sent to the LLM (app/providers.py)
         gcal=ProviderPayload(data=_parse(row["gcal_data"])),
         costar=ProviderPayload(data=_parse(row["costar_data"])),
         letterboxd=ProviderPayload(data=_parse(row["letterboxd_data"])),

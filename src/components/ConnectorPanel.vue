@@ -91,13 +91,6 @@ const connectors = computed(() => [
     connected: oauthState.value.twitter.connected,
   },
   {
-    key: 'strava',
-    label: 'Strava',
-    svg: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#FC4C02" d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169"/></svg>`,
-    connect: () => router.push('/calibrate'),
-    connected: oauthState.value.strava.connected,
-  },
-  {
     key: 'google',
     label: 'Calendar',
     svg: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M21.6 12.23c0-.82-.07-1.61-.2-2.37H12v4.48h5.38c-.23 1.15-.86 2.12-1.73 2.76v2.3h2.8c1.64-1.51 2.58-3.74 2.58-6.17z"/><path fill="#34A853" d="M12 22c2.7 0 4.96-.9 6.62-2.42l-2.8-2.3c-.9.6-2.06.95-3.82.95-2.93 0-5.4-1.98-6.28-4.65H2.8v2.37C4.46 19.22 7.96 22 12 22z"/><path fill="#FBBC05" d="M5.72 13.58c-.23-.68-.36-1.4-.36-2.14s.13-1.46.36-2.14V6.93H2.8C2.26 8 2 9.17 2 10.42c0 1.25.26 2.42.8 3.5l2.92-2.34z"/><path fill="#EA4335" d="M12 5.05c1.47 0 2.78.5 3.82 1.49l2.86-2.86C16.96 2.04 14.7 1 12 1 7.96 1 4.46 3.78 2.8 6.93l2.92 2.34c.88-2.67 3.35-4.65 6.28-4.65z"/></svg>`,
@@ -217,7 +210,7 @@ const connectedCount = computed(() => connectors.value.filter((c) => c.connected
 
 // Steam has no connector config page yet — its connected pill goes to /calibrate
 const inspectablePages = new Set([
-  'spotify', 'twitter', 'strava', 'google', 'github', 'youtube',
+  'spotify', 'twitter', 'google', 'github', 'youtube',
   'reddit', 'letterboxd', 'instagram', 'tiktok', 'costar',
 ])
 

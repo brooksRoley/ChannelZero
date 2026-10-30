@@ -64,7 +64,10 @@ async function apiFetch<T>(path: string, opts: RequestInit = {}): Promise<T> {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error(body.detail || `Request failed: ${res.status}`)
+    // Connectors answer {detail: {code, message}}; older routes, a string.
+    const d = body.detail
+    const msg = d && typeof d === 'object' ? (d.message || d.code) : d
+    throw new Error(msg || `Request failed: ${res.status}`)
   }
   return res.json()
 }

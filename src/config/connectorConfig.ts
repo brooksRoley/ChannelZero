@@ -335,3 +335,10 @@ export function analyzeEndpoint(provider: string): string {
   }
   return map[provider] || `/api/${provider}/analyze`
 }
+
+/** Providers ChannelZero no longer connects to (mirrors server/app/providers.py). */
+export const RETIRED_PROVIDERS: Record<string, string> = {
+  strava:
+    "Strava's API now needs a paid subscription and forbids any AI use of its data, " +
+    'so ChannelZero no longer connects to it.',
+}

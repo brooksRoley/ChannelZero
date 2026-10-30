@@ -14,6 +14,7 @@ from ..auth.deps import get_current_user_id
 from ..config import get_settings
 from ..db import get_conn
 from ..llm.chat import chat_completion, llm_configured
+from ..providers import is_retired
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -32,6 +33,8 @@ _DATA_COLUMNS = [
     "tiktok_data",
     "costar_data",
 ]
+# Correlations go to an LLM: retired providers' columns never do.
+_DATA_COLUMNS = [c for c in _DATA_COLUMNS if not is_retired(c.replace("_data", ""))]
 
 # Map column name -> provider label
 _COL_TO_PROVIDER = {col: col.replace("_data", "") for col in _DATA_COLUMNS}
@@ -66,7 +69,7 @@ async def get_available_connectors():
     settings = get_settings()
     out: dict[str, bool] = {}
     for key, reqs in _PROVIDER_REQS:
-        out[key] = all(bool(getattr(settings, attr, "")) for attr in reqs)
+        out[key] = not is_retired(key) and all(bool(getattr(settings, attr, "")) for attr in reqs)
     return {
         "providers": out,
         "llm": llm_configured(),

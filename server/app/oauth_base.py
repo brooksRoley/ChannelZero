@@ -13,6 +13,7 @@ stays in each router — this module only covers the OAuth plumbing.
 
 from __future__ import annotations
 
+import logging
 import secrets
 import time
 from datetime import datetime, timezone
@@ -26,6 +27,8 @@ from fastapi import HTTPException, status
 from .config import get_settings
 from .db import get_conn
 from .llm.encryption import decrypt_api_key, encrypt_api_key
+
+logger = logging.getLogger(__name__)
 
 
 # ── State helpers ─────────────────────────────────────────────────────────────────────────
@@ -193,9 +196,11 @@ async def exchange_code_for_tokens(
             )
 
     if resp.status_code != 200:
+        # The provider's body goes to the log, never to the client.
+        logger.warning("Token exchange failed (%s): %s", resp.status_code, resp.text[:300])
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Token exchange failed: {resp.text}",
+            detail="Token exchange failed",
         )
 
     return resp.json()
@@ -257,7 +262,7 @@ async def get_stored_tokens(
             """
             SELECT encrypted_access_token, access_nonce,
                    encrypted_refresh_token, refresh_nonce,
-                   expires_at
+                   expires_at, scope
             FROM oauth_tokens
             WHERE user_id = $1 AND provider = $2
             """,
@@ -280,7 +285,62 @@ async def get_stored_tokens(
         "access_token": access_token,
         "refresh_token": refresh_token,
         "expires_at": row["expires_at"],
+        "scope": row.get("scope") or "",
     }
+
+
+# Seconds before expiry at which a token counts as expired: a fetch that
+# starts on a token with seconds left can fail halfway through.
+_REFRESH_SKEW_SECONDS = 300
+
+
+async def refresh_if_needed(
+    user_id: str | UUID,
+    provider: str,
+    token_url: str,
+    client_id: str,
+    client_secret: str,
+) -> str:
+    """Return a live access token for user+provider, refreshing it if needed.
+
+    Stores the *rotated* refresh token: providers like Strava issue a new one
+    on refresh, and the old one stops working once the new token is used.
+
+    Raises HTTPException 404 {code: not_connected} with no stored tokens, and
+    409 {code: reauth_required} when there is no refresh token or the refresh
+    is refused. 409, not 401: the frontend treats any 401 as an expired
+    ChannelZero session and logs the user out.
+    """
+    tokens = await get_stored_tokens(user_id, provider)
+    if not tokens:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail={"code": "not_connected", "message": f"{provider.title()} isn't connected."})
+    expires = tokens.get("expires_at")
+    if expires is not None and expires.timestamp() > time.time() + _REFRESH_SKEW_SECONDS:
+        return tokens["access_token"]
+    reauth = HTTPException(status_code=status.HTTP_409_CONFLICT,
+                           detail={"code": "reauth_required",
+                                   "message": f"{provider.title()} needs you to reconnect."})
+    if not tokens.get("refresh_token"):
+        raise reauth
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.post(token_url, data={
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "grant_type": "refresh_token",
+            "refresh_token": tokens["refresh_token"],
+        })
+    if resp.status_code != 200:
+        logger.warning("%s token refresh failed (%s): %s", provider, resp.status_code, resp.text[:300])
+        raise reauth
+    body = resp.json()
+    expires_at = body.get("expires_at") or int(time.time()) + int(body.get("expires_in", 3600))
+    await store_oauth_tokens(
+        str(user_id), provider, body["access_token"],
+        body.get("refresh_token") or tokens["refresh_token"], expires_at, tokens.get("scope", ""),
+    )
+    return body["access_token"]
 
 
 _PROVIDER_DATA_COLUMNS = {

@@ -129,4 +129,30 @@ describe('StravaCallback', () => {
     expect(mockMarkConnected).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('Network error')
   })
+
+  it('shows a plain message and never calls the backend when Strava says access was denied', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    setQuery({ error: 'access_denied', state: 's' })
+    const wrapper = await mountCallback()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('access was declined')
+    expect(mockMarkConnected).not.toHaveBeenCalled()
+  })
+
+  it('passes the granted scope through to the backend', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({}) })
+    vi.stubGlobal('fetch', fetchMock)
+    setQuery({ code: 'c', state: 's', scope: 'read,activity:read' })
+    await mountCallback()
+    expect(fetchMock.mock.calls[0][0]).toContain(`scope=${encodeURIComponent('read,activity:read')}`)
+  })
+
+  it('shows the message from a {code, message} detail (an inactive Strava app)', async () => {
+    stubFetch(false, 503, { detail: { code: 'app_inactive', message: "Strava isn't sending activities right now" } })
+    setQuery({ code: 'c', state: 's' })
+    const wrapper = await mountCallback()
+    expect(wrapper.text()).toContain("Strava isn't sending activities right now")
+    expect(mockMarkConnected).not.toHaveBeenCalled()
+  })
 })
