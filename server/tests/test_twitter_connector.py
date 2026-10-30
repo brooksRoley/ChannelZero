@@ -20,7 +20,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.auth.deps import get_current_user_id
-from app.twitter.router import _distill_profile, _pkce_challenge, router as twitter_router
+from app.oauth_base import pkce_challenge as _pkce_challenge
+from app.twitter.router import _distill_profile, router as twitter_router
 
 from .conftest import FakeConn, make_get_conn
 
@@ -271,8 +272,8 @@ class TestTwitterConnectEndpoint:
     def test_503_when_x_client_id_not_configured(self):
         """Missing X_CLIENT_ID → 503 before any token validation or DB call."""
         app = _make_app()
-        with patch("app.twitter.router.get_settings") as mock_settings:
+        with patch("app.oauth_base.get_settings") as mock_settings:
             mock_settings.return_value.x_client_id = None
             resp = TestClient(app).get("/api/twitter/connect")
         assert resp.status_code == 503
-        assert "not configured" in resp.json()["detail"].lower()
+        assert resp.json()["detail"]["code"] == "not_configured"

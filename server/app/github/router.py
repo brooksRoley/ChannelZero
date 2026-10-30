@@ -26,11 +26,10 @@ from ..config import get_settings
 from ..db import get_conn
 from ..llm.chat import chat_completion
 from ..oauth_base import (
-    build_authorize_url,
-    make_oauth_state,
-    store_oauth_tokens,
+    OAuthProvider,
+    authorize_url,
+    finish_callback,
     store_provider_data,
-    verify_oauth_state,
 )
 
 router = APIRouter()
@@ -39,6 +38,14 @@ _GITHUB_AUTH_URL = "https://github.com/login/oauth/authorize"
 _GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 _GITHUB_API_BASE = "https://api.github.com"
 _SCOPES = "read:user repo"
+
+GITHUB = OAuthProvider(
+    name="github", label="GitHub",
+    auth_url=_GITHUB_AUTH_URL, token_url=_GITHUB_TOKEN_URL, scopes=_SCOPES,
+    client_id=lambda s: s.github_client_id, client_secret=lambda s: s.github_client_secret,
+    redirect_uri=lambda s: s.github_redirect_uri,
+    default_expires_in=None,
+)
 
 
 # -- Routes --------------------------------------------------------------------
@@ -49,18 +56,7 @@ async def github_connect(user_id: UUID = Depends(get_current_user_id)):
     Return the GitHub authorization URL for the authenticated user.
     Frontend fetches with Authorization: Bearer header — no JWT in the URL.
     """
-    settings = get_settings()
-    if not settings.github_client_id:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="GitHub not configured")
-
-    url = build_authorize_url(
-        _GITHUB_AUTH_URL,
-        client_id=settings.github_client_id,
-        redirect_uri=settings.github_redirect_uri,
-        scope=_SCOPES,
-        state=make_oauth_state(str(user_id)),
-    )
-    return {"auth_url": url}
+    return {"auth_url": authorize_url(GITHUB, str(user_id))}
 
 
 @router.get("/callback")
@@ -69,33 +65,11 @@ async def github_callback(code: str, state: str):
     GitHub redirects here (via frontend) after user authorizes.
     Exchanges code for tokens, fetches user profile + repos + stars, stores everything.
     """
-    user_id = await verify_oauth_state(state)
+    grant = await finish_callback(GITHUB, code, state)
+    user_id, access_token = grant.user_id, grant.access_token
     settings = get_settings()
 
     async with httpx.AsyncClient(timeout=20.0) as client:
-        # 1. Exchange authorization code for access token
-        token_resp = await client.post(
-            _GITHUB_TOKEN_URL,
-            data={
-                "client_id": settings.github_client_id,
-                "client_secret": settings.github_client_secret,
-                "code": code,
-            },
-            headers={"Accept": "application/json"},
-        )
-        if token_resp.status_code != 200:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"GitHub token exchange failed: {token_resp.text}",
-            )
-        tokens = token_resp.json()
-
-        access_token = tokens.get("access_token")
-        if not access_token:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"GitHub token exchange failed: {tokens.get('error_description', 'no access_token')}",
-            )
 
         headers = {
             "Authorization": f"Bearer {access_token}",
@@ -139,11 +113,6 @@ async def github_callback(code: str, state: str):
                 "UPDATE users SET github_id = $1, updated_at = now() WHERE id = $2",
                 github_id, UUID(user_id),
             )
-
-    # 7. Store tokens via shared helper (GitHub tokens don't expire by default)
-    await store_oauth_tokens(
-        user_id, "github", access_token, None, None, _SCOPES,
-    )
 
     # 8. Store GitHub profile on vibe_vectors row (if intake already done)
     await store_provider_data(user_id, "github_data", github_profile)

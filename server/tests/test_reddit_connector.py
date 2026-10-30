@@ -261,15 +261,15 @@ class TestRedditConnectEndpoint:
     def test_503_when_reddit_client_id_not_configured(self):
         """Missing reddit_client_id → 503 before any token/DB work."""
         app = _make_app()
-        with patch("app.reddit.router.get_settings") as mock_settings:
+        with patch("app.oauth_base.get_settings") as mock_settings:
             mock_settings.return_value.reddit_client_id = None
             resp = TestClient(app).get("/api/reddit/connect")
         assert resp.status_code == 503
-        assert "not configured" in resp.json()["detail"].lower()
+        assert resp.json()["detail"]["code"] == "not_configured"
 
     def test_returns_auth_url_when_configured(self):
         app = _make_app()
-        with patch("app.reddit.router.get_settings") as mock_settings:
+        with patch("app.oauth_base.get_settings") as mock_settings:
             s = mock_settings.return_value
             s.reddit_client_id = "abc123"
             s.reddit_redirect_uri = "https://channelzero.example/reddit/callback"

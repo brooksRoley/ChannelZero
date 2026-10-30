@@ -13,24 +13,19 @@ Flow:
 
 from __future__ import annotations
 
-import base64
 import json
 import time
-from urllib.parse import urlencode
 from uuid import UUID
 
-import secrets
 
 import httpx
-import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 
 from ..auth.deps import get_current_user_id
 from ..config import get_settings
-from ..oauth_base import store_provider_data
+from ..oauth_base import OAuthProvider, authorize_url, finish_callback, store_provider_data
 from ..db import get_conn
-from ..llm.encryption import encrypt_api_key
 from ..llm.chat import chat_completion
 
 router = APIRouter()
@@ -42,42 +37,14 @@ _SCOPES = "identity read history"
 _USER_AGENT = "channelzero/1.0"
 
 
-# ── State helpers ─────────────────────────────────────────────────────────────
-
-def _make_state(user_id: str) -> str:
-    nonce = secrets.token_urlsafe(16)
-    payload = {"sub": user_id, "nonce": nonce, "exp": int(time.time()) + 600}
-    return jwt.encode(payload, get_settings().jwt_secret, algorithm="HS256")
-
-
-async def _verify_state(state: str) -> str:
-    """Decode, verify, and consume the state JWT (one-time use)."""
-    try:
-        payload = jwt.decode(state, get_settings().jwt_secret, algorithms=["HS256"])
-    except jwt.PyJWTError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state") from exc
-
-    nonce = payload.get("nonce")
-    if not nonce:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state — missing nonce")
-
-    # Consume the nonce — INSERT fails on replay due to UNIQUE constraint
-    async with get_conn() as conn:
-        try:
-            await conn.execute(
-                """
-                INSERT INTO _oauth_nonces (nonce, consumed_at)
-                VALUES ($1, now())
-                """,
-                nonce,
-            )
-        except Exception:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="OAuth state already consumed — possible replay attack",
-            )
-
-    return payload["sub"]
+REDDIT = OAuthProvider(
+    name="reddit", label="Reddit",
+    auth_url=_REDDIT_AUTH_URL, token_url=_REDDIT_TOKEN_URL, scopes=_SCOPES,
+    client_id=lambda s: s.reddit_client_id, client_secret=lambda s: s.reddit_client_secret,
+    redirect_uri=lambda s: s.reddit_redirect_uri,
+    token_auth="basic", token_headers={"User-Agent": _USER_AGENT},
+    authorize_params={"duration": "permanent"},
+)
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -88,19 +55,7 @@ async def reddit_connect(user_id: UUID = Depends(get_current_user_id)):
     Return the Reddit authorization URL for the authenticated user.
     Frontend fetches with Authorization: Bearer header — no JWT in the URL.
     """
-    settings = get_settings()
-    if not settings.reddit_client_id:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Reddit not configured")
-
-    params = {
-        "client_id": settings.reddit_client_id,
-        "response_type": "code",
-        "redirect_uri": settings.reddit_redirect_uri,
-        "scope": _SCOPES,
-        "state": _make_state(str(user_id)),
-        "duration": "permanent",
-    }
-    return {"auth_url": f"{_REDDIT_AUTH_URL}?{urlencode(params)}"}
+    return {"auth_url": authorize_url(REDDIT, str(user_id))}
 
 
 @router.get("/callback")
@@ -109,40 +64,10 @@ async def reddit_callback(code: str, state: str):
     Reddit redirects here (via frontend) after user authorizes.
     Exchanges code for tokens, fetches profile + subreddits + comments, stores everything.
     """
-    user_id = await _verify_state(state)
-    settings = get_settings()
-
-    # Reddit requires Basic Auth for token exchange
-    credentials = base64.b64encode(
-        f"{settings.reddit_client_id}:{settings.reddit_client_secret}".encode()
-    ).decode()
+    grant = await finish_callback(REDDIT, code, state)
+    user_id, access_token = grant.user_id, grant.access_token
 
     async with httpx.AsyncClient(timeout=20.0) as client:
-        # 1. Exchange authorization code for access + refresh tokens
-        token_resp = await client.post(
-            _REDDIT_TOKEN_URL,
-            headers={
-                "Authorization": f"Basic {credentials}",
-                "Content-Type": "application/x-www-form-urlencoded",
-                "User-Agent": _USER_AGENT,
-            },
-            data={
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": settings.reddit_redirect_uri,
-            },
-        )
-        if token_resp.status_code != 200:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Reddit token exchange failed: {token_resp.text}",
-            )
-        tokens = token_resp.json()
-
-        access_token = tokens["access_token"]
-        refresh_token = tokens.get("refresh_token", "")
-        expires_in = tokens.get("expires_in", 3600)
-        expires_at = int(time.time()) + expires_in
 
         api_headers = {
             "Authorization": f"Bearer {access_token}",
@@ -200,35 +125,6 @@ async def reddit_callback(code: str, state: str):
 
     # 7. Distill the psychographic profile
     reddit_profile = _distill_profile(me_data, subs_data, comments_data, saved_data, trophies_data)
-
-    # 8. Encrypt and store tokens
-    enc_access, access_nonce = encrypt_api_key(access_token)
-    enc_refresh, refresh_nonce = encrypt_api_key(refresh_token) if refresh_token else (None, None)
-
-    from datetime import datetime, timezone
-    expires_dt = datetime.fromtimestamp(expires_at, tz=timezone.utc)
-
-    async with get_conn() as conn:
-        await conn.execute(
-            """
-            INSERT INTO oauth_tokens
-                (user_id, provider, encrypted_access_token, access_nonce,
-                 encrypted_refresh_token, refresh_nonce, expires_at, scope)
-            VALUES ($1, 'reddit', $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (user_id, provider) DO UPDATE SET
-                encrypted_access_token  = EXCLUDED.encrypted_access_token,
-                access_nonce            = EXCLUDED.access_nonce,
-                encrypted_refresh_token = EXCLUDED.encrypted_refresh_token,
-                refresh_nonce           = EXCLUDED.refresh_nonce,
-                expires_at              = EXCLUDED.expires_at,
-                scope                   = EXCLUDED.scope,
-                updated_at              = now()
-            """,
-            UUID(user_id),
-            enc_access, access_nonce,
-            enc_refresh, refresh_nonce,
-            expires_dt, _SCOPES,
-        )
 
     # 9. Store Reddit profile (upserts into vibe_vectors).
     await store_provider_data(user_id, "reddit_data", reddit_profile)
