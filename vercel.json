@@ -1,5 +1,5 @@
 {
-  "buildCommand": "vue-tsc --noEmit && vite build",
+  "buildCommand": "vue-tsc --noEmit -p tsconfig.app.json && vue-tsc --noEmit -p tsconfig.node.json && vite build",
   "rewrites": [
     { "source": "/((?!api|assets|audio|_next).*)", "destination": "/index.html" }
   ],
